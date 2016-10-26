@@ -13,7 +13,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
     {
         private const string DeadLetterQueueSuffix = "$DeadLetterQueue";
 
-        public static async Task CreateQueueIfNotExistsAsync(this NamespaceManager manager, string path, CancellationToken cancellationToken)
+        public static async Task CreateQueueIfNotExistsAsync(this NamespaceManager manager, string path, bool useSessions, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -23,7 +23,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await manager.CreateQueueAsync(parentQueuePath);
+                    await manager.CreateQueueAsync(new QueueDescription(parentQueuePath) { RequiresSession = useSessions });
                 }
                 catch (MessagingEntityAlreadyExistsException)
                 {
@@ -74,7 +74,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
         }
 
         public static async Task CreateSubscriptionIfNotExistsAsync(this NamespaceManager manager, string topicPath,
-            string name, CancellationToken cancellationToken)
+            string name, bool useSessions, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -84,8 +84,11 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-
-                    await manager.CreateSubscriptionAsync(topicPath, parentSubscriptionName);
+                    var subscriptionDescription = new SubscriptionDescription(topicPath, parentSubscriptionName)
+                    {
+                        RequiresSession = useSessions
+                    };
+                    await manager.CreateSubscriptionAsync(subscriptionDescription);
                 }
                 catch (MessagingEntityAlreadyExistsException)
                 {

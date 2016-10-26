@@ -5,12 +5,14 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host.TestCommon;
 using Microsoft.Azure.WebJobs.ServiceBus;
 using Microsoft.ServiceBus;
 using Microsoft.ServiceBus.Messaging;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
@@ -21,7 +23,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
         private const int SBTimeout = 60 * 1000;
         private const string QueueNamePrefix = PrefixForAll + "queue-";
         private const string StartQueueName = QueueNamePrefix + "start";
-
+        private const string SessionQueueName = QueueNamePrefix + "session";
         private const string TopicName = PrefixForAll + "topic";
 
         private static EventWaitHandle _topicSubscriptionCalled1;
@@ -36,6 +38,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
         private ServiceBusConfiguration _serviceBusConfig;
         private RandomNameResolver _nameResolver;
         private string _secondaryConnectionString;
+  
 
         public ServiceBusEndToEndTests()
         {
@@ -175,6 +178,99 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             }
         }
 
+
+        [Fact]
+        public async Task BindingTest()
+        {
+            try
+            {
+                TestTraceWriter trace = new TestTraceWriter(TraceLevel.Info);
+                _serviceBusConfig = new ServiceBusConfiguration();
+                _serviceBusConfig.MessagingProvider = new CustomMessagingProvider(_serviceBusConfig, trace);
+
+                JobHostConfiguration config = new JobHostConfiguration
+                {
+                    NameResolver = _nameResolver,
+                    TypeLocator = new FakeTypeLocator(typeof(ServiceBusBindingTestJobs))
+                };
+                config.Tracing.Tracers.Add(trace);
+                config.UseServiceBus(_serviceBusConfig);
+                JobHost host = new JobHost(config);
+
+                string queueName = ResolveName(SessionQueueName);
+
+                var customObjct = new CustomObject() { Number = 1, Text = "Test"};
+                WriteQueueMessage(_secondaryNamespaceManager, _secondaryConnectionString, queueName, "Test1", "Session1");
+                WriteQueueMessage(_secondaryNamespaceManager, _secondaryConnectionString, queueName, "Test2", "Session2");
+                WriteQueueMessage(_secondaryNamespaceManager, _secondaryConnectionString, queueName, "Test3", "Session1");
+
+                _topicSubscriptionCalled1 = new ManualResetEvent(initialState: false);
+
+                await host.StartAsync();
+
+                _topicSubscriptionCalled1.WaitOne(SBTimeout);
+
+                // ensure all logs have had a chance to flush
+                await Task.Delay(30000);
+
+                // Wait for the host to terminate
+                await host.StopAsync();
+                host.Dispose();
+
+                Assert.Equal("Test-topic-1", _resultMessage1);
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+
+        [Fact]
+        public async Task SessionTest()
+        {
+            try
+            {
+                TestTraceWriter trace = new TestTraceWriter(TraceLevel.Info);
+                _serviceBusConfig = new ServiceBusConfiguration();
+                _serviceBusConfig.MessagingProvider = new CustomMessagingProvider(_serviceBusConfig, trace);
+
+                JobHostConfiguration config = new JobHostConfiguration
+                {
+                    NameResolver = _nameResolver,
+                    TypeLocator = new FakeTypeLocator(typeof(ServicBusSessionTestJobs))
+                };
+                config.Tracing.Tracers.Add(trace);
+                config.UseServiceBus(_serviceBusConfig);
+                JobHost host = new JobHost(config);
+
+                string queueName = ResolveName(SessionQueueName);
+
+
+                WriteQueueMessage(_secondaryNamespaceManager, _secondaryConnectionString, queueName, "Test1", "Session1");
+                WriteQueueMessage(_secondaryNamespaceManager, _secondaryConnectionString, queueName, "Test2", "Session2");
+                WriteQueueMessage(_secondaryNamespaceManager, _secondaryConnectionString, queueName, "Test3", "Session1");
+                _topicSubscriptionCalled1 = new ManualResetEvent(initialState: false);
+
+                await host.StartAsync();
+
+                _topicSubscriptionCalled1.WaitOne(SBTimeout);
+
+                // ensure all logs have had a chance to flush
+                await Task.Delay(30000);
+
+                // Wait for the host to terminate
+                await host.StopAsync();
+                host.Dispose();
+
+                Assert.Equal("Test-topic-1", _resultMessage1);
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
         private void Cleanup()
         {
             string elementName = ResolveName(StartQueueName);
@@ -198,6 +294,12 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             if (_namespaceManager.TopicExists(elementName))
             {
                 _namespaceManager.DeleteTopic(elementName);
+            }
+
+            elementName = ResolveName(SessionQueueName);
+            if (_namespaceManager.QueueExists(elementName))
+            {
+                _namespaceManager.DeleteQueue(elementName);
             }
         }
 
@@ -289,11 +391,32 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             WriteQueueMessage(_namespaceManager, serviceBusConnectionString, queueName, "E2E");
         }
 
-        private void WriteQueueMessage(NamespaceManager namespaceManager, string connectionString, string queueName, string message)
+
+        private void WriteQueueMessage<T>(NamespaceManager namespaceManager, string connectionString, string queueName, T messageObject, string session = null)
         {
             if (!namespaceManager.QueueExists(queueName))
             {
-                namespaceManager.CreateQueue(queueName);
+                namespaceManager.CreateQueue(new QueueDescription(queueName) { RequiresSession = !string.IsNullOrEmpty(session) });
+            }
+
+            QueueClient queueClient = QueueClient.CreateFromConnectionString(connectionString, queueName);
+
+            string messageContent = JsonConvert.SerializeObject(messageObject);
+            BrokeredMessage message = new BrokeredMessage(new MemoryStream(Encoding.UTF8.GetBytes(messageContent)), true);
+            message.ContentType =  "application/json";
+            if (!string.IsNullOrEmpty(session))
+            {
+                message.SessionId = session;
+            }
+
+            queueClient.Send(message);
+            queueClient.Close();
+        }
+        private void WriteQueueMessage(NamespaceManager namespaceManager, string connectionString, string queueName, string message, string session = null)
+        {
+            if (!namespaceManager.QueueExists(queueName))
+            {
+                namespaceManager.CreateQueue(new QueueDescription(queueName) { RequiresSession = !string.IsNullOrEmpty(session) });
             }
 
             QueueClient queueClient = QueueClient.CreateFromConnectionString(connectionString, queueName);
@@ -304,8 +427,9 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
                 writer.Write(message);
                 writer.Flush();
                 stream.Position = 0;
-
-                queueClient.Send(new BrokeredMessage(stream) { ContentType = "text/plain" });
+                queueClient.Send(!string.IsNullOrEmpty(session)
+                    ? new BrokeredMessage(stream) { ContentType = "text/plain", SessionId = session }
+                    : new BrokeredMessage(stream) { ContentType = "text/plain" });
             }
 
             queueClient.Close();
@@ -360,6 +484,31 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             }
         }
 
+        public class ServicBusSessionTestJobs : ServiceBusTestJobsBase
+        {
+            public static void Session([ServiceBusTrigger(SessionQueueName, AccessRights.Manage, true)] string message, MessageSession session)
+            {
+                SBTopicListener1Impl(message);
+            }
+        }
+
+
+        public class ServiceBusBindingTestJobs : ServiceBusTestJobsBase
+        {
+            public static void Session([ServiceBusSessionTrigger(SessionQueueName, AccessRights.Manage)] BrokeredMessage message, MessageSession session)
+            {
+                var messageText = string.Empty;
+                using (Stream stream = message.GetBody<Stream>())
+                using (TextReader reader = new StreamReader(stream))
+                {
+                    messageText = reader.ReadToEnd();
+                }
+                
+                Console.WriteLine($"{messageText} : on Session Id {session.SessionId}");
+            }
+        }
+
+
         public class ServiceBusTestJobs : ServiceBusTestJobsBase
         {
             // Passes service bus message from a queue to another queue
@@ -403,6 +552,8 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             {
                 output = input;
             }
+
+ 
         }
 
         /// <summary>

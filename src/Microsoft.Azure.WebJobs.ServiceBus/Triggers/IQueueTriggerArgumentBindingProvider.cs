@@ -11,4 +11,9 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
     {
         ITriggerDataArgumentBinding<BrokeredMessage> TryCreate(ParameterInfo parameter);
     }
+
+    internal interface ISessionQueueTriggerArgumentBindingProvider
+    {
+         ITriggerDataArgumentBinding<BrokeredMessageSession> TryCreate(ParameterInfo parameter);
+    }
 }

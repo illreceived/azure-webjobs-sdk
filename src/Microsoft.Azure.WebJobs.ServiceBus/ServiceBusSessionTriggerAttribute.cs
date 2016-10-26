@@ -22,52 +22,39 @@ namespace Microsoft.Azure.WebJobs
     /// </remarks>
     [AttributeUsage(AttributeTargets.Parameter)]
     [DebuggerDisplay("{DebuggerDisplay,nq}")]
-    public sealed class ServiceBusTriggerAttribute : Attribute
+    public sealed class ServiceBusSessionTriggerAttribute : Attribute
     {
         private readonly string _queueName;
         private readonly string _topicName;
         private readonly string _subscriptionName;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceBusTriggerAttribute"/> class.
+        /// Initializes a new instance of the <see cref="ServiceBusSessionTriggerAttribute"/> class.
         /// </summary>
         /// <param name="queueName">The name of the queue to which to bind.</param>
-        public ServiceBusTriggerAttribute(string queueName)
+        public ServiceBusSessionTriggerAttribute(string queueName)
         {
             _queueName = queueName;
             Access = AccessRights.Manage;
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceBusTriggerAttribute"/> class.
+        /// Initializes a new instance of the <see cref="ServiceBusSessionTriggerAttribute"/> class.
         /// </summary>
         /// <param name="queueName">The name of the queue to which to bind.</param>
         /// <param name="access">The <see cref="AccessRights"/> the client has to the queue.</param>
-        public ServiceBusTriggerAttribute(string queueName, AccessRights access)
+        public ServiceBusSessionTriggerAttribute(string queueName, AccessRights access)
         {
             _queueName = queueName;
             Access = access;
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceBusTriggerAttribute"/> class.
-        /// </summary>
-        /// <param name="queueName">The name of the queue to which to bind.</param>
-        /// <param name="access">The <see cref="AccessRights"/> the client has to the queue.</param>
-        /// <param name="useSession"></param>
-        public ServiceBusTriggerAttribute(string queueName, AccessRights access, bool useSession)
-        {
-            _queueName = queueName;
-            Access = access;
-            UseSession = useSession;
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceBusTriggerAttribute"/> class.
+        /// Initializes a new instance of the <see cref="ServiceBusSessionTriggerAttribute"/> class.
         /// </summary>
         /// <param name="topicName">The name of the topic to bind to.</param>
         /// <param name="subscriptionName">The name of the subscription in <paramref name="topicName"/> to bind to.</param>
-        public ServiceBusTriggerAttribute(string topicName, string subscriptionName)
+        public ServiceBusSessionTriggerAttribute(string topicName, string subscriptionName)
         {
             _topicName = topicName;
             _subscriptionName = subscriptionName;
@@ -75,31 +62,16 @@ namespace Microsoft.Azure.WebJobs
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceBusTriggerAttribute"/> class.
+        /// Initializes a new instance of the <see cref="ServiceBusSessionTriggerAttribute"/> class.
         /// </summary>
         /// <param name="topicName">The name of the topic to bind to.</param>
         /// <param name="subscriptionName">The name of the subscription in <paramref name="topicName"/> to bind to.</param>
         /// <param name="access">The <see cref="AccessRights"/> the client has to the subscription in the topic.</param>
-        public ServiceBusTriggerAttribute(string topicName, string subscriptionName, AccessRights access)
+        public ServiceBusSessionTriggerAttribute(string topicName, string subscriptionName, AccessRights access)
         {
             _topicName = topicName;
             _subscriptionName = subscriptionName;
             Access = access;
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceBusTriggerAttribute"/> class.
-        /// </summary>
-        /// <param name="topicName">The name of the topic to bind to.</param>
-        /// <param name="subscriptionName">The name of the subscription in <paramref name="topicName"/> to bind to.</param>
-        /// <param name="access">The <see cref="AccessRights"/> the client has to the subscription in the topic.</param>
-        /// <param name="useSession"></param>
-        public ServiceBusTriggerAttribute(string topicName, string subscriptionName, AccessRights access, bool useSession)
-        {
-            _topicName = topicName;
-            _subscriptionName = subscriptionName;
-            Access = access;
-            UseSession = useSession;
         }
 
         /// <summary>
@@ -133,11 +105,6 @@ namespace Microsoft.Azure.WebJobs
         /// Gets the <see cref="AccessRights"/> the client has to the queue or topic subscription.
         /// </summary>
         public AccessRights Access { get; private set; }
-
-        /// <summary>
-        /// Gets whether or not to use Sessions
-        /// </summary>
-        public bool UseSession { get; private set; }
 
         private string DebuggerDisplay
         {

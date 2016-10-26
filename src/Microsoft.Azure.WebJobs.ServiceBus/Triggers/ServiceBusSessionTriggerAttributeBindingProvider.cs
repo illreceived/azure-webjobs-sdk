@@ -12,20 +12,20 @@ using Microsoft.ServiceBus.Messaging;
 
 namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
 {
-    internal class ServiceBusTriggerAttributeBindingProvider : ITriggerBindingProvider
+    internal class ServiceBusSessionTriggerAttributeBindingProvider : ITriggerBindingProvider
     {
-        private static readonly IQueueTriggerArgumentBindingProvider InnerProvider =
-            new CompositeArgumentBindingProvider(
-                new ConverterArgumentBindingProvider<BrokeredMessage>(
+        private static readonly ISessionQueueTriggerArgumentBindingProvider InnerProvider =
+            new SessionCompositeArgumentBindingProvider(
+                new SessionConverterArgumentBindingProvider<BrokeredMessage>(
                     new AsyncConverter<BrokeredMessage, BrokeredMessage>(new IdentityConverter<BrokeredMessage>())),
-                new ConverterArgumentBindingProvider<string>(new BrokeredMessageToStringConverter()),
-                new ConverterArgumentBindingProvider<byte[]>(new BrokeredMessageToByteArrayConverter()),
-                new UserTypeArgumentBindingProvider()); // Must come last, because it will attempt to bind all types.
+                    new SessionConverterArgumentBindingProvider<string>(new BrokeredMessageToStringConverter()),
+                new SessionConverterArgumentBindingProvider<byte[]>(new BrokeredMessageToByteArrayConverter()),
+                new SessionUserTypeArgumentBindingProvider()); // Must come last, because it will attempt to bind all types.
 
         private readonly INameResolver _nameResolver;
         private readonly ServiceBusConfiguration _config;
 
-        public ServiceBusTriggerAttributeBindingProvider(INameResolver nameResolver, ServiceBusConfiguration config)
+        public ServiceBusSessionTriggerAttributeBindingProvider(INameResolver nameResolver, ServiceBusConfiguration config)
         {
             if (nameResolver == null)
             {
@@ -48,7 +48,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
             }
 
             ParameterInfo parameter = context.Parameter;
-            ServiceBusTriggerAttribute attribute = parameter.GetCustomAttribute<ServiceBusTriggerAttribute>(inherit: false);
+            ServiceBusSessionTriggerAttribute attribute = parameter.GetCustomAttribute<ServiceBusSessionTriggerAttribute>(inherit: false);
 
             if (attribute == null)
             {
@@ -59,9 +59,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
             string topicName = null;
             string subscriptionName = null;
             string entityPath = null;
-            bool useSessions = false;
 
-            useSessions = attribute.UseSession;
             if (attribute.QueueName != null)
             {
                 queueName = Resolve(attribute.QueueName);
@@ -74,7 +72,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
                 entityPath = SubscriptionClient.FormatSubscriptionPath(topicName, subscriptionName);
             }
 
-            ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding = InnerProvider.TryCreate(parameter);
+            ITriggerDataArgumentBinding<BrokeredMessageSession> argumentBinding = InnerProvider.TryCreate(parameter);
             if (argumentBinding == null)
             {
                 throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, "Can't bind ServiceBusTrigger to type '{0}'.", parameter.ParameterType));
@@ -90,11 +88,11 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
             ITriggerBinding binding;
             if (queueName != null)
             {
-                binding = new ServiceBusTriggerBinding(parameter.Name, parameter.ParameterType, argumentBinding, account, queueName, attribute.Access, _config, useSessions);
+                binding = new ServiceBusSessionTriggerBinding(parameter.Name, parameter.ParameterType, argumentBinding, account, queueName, attribute.Access, _config);
             }
             else
             {
-                binding = new ServiceBusTriggerBinding(parameter.Name, argumentBinding, account, topicName, subscriptionName, attribute.Access, _config);
+                binding = new ServiceBusSessionTriggerBinding(parameter.Name, argumentBinding, account, topicName, subscriptionName, attribute.Access, _config);
             }
 
             return Task.FromResult<ITriggerBinding>(binding);

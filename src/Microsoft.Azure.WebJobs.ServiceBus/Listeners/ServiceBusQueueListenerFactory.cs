@@ -36,7 +36,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
                 // Must create all messaging entities before creating message receivers and calling OnMessage.
                 // Otherwise, some function could start to execute and try to output messages to entities that don't yet
                 // exist.
-                await _namespaceManager.CreateQueueIfNotExistsAsync(_queueName, cancellationToken);
+                await _namespaceManager.CreateQueueIfNotExistsAsync(_queueName, false, cancellationToken);
             }
 
             ServiceBusTriggerExecutor triggerExecutor = new ServiceBusTriggerExecutor(_executor);

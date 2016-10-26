@@ -16,11 +16,11 @@ using Microsoft.ServiceBus.Messaging;
 
 namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
 {
-    internal class ServiceBusTriggerBinding : ITriggerBinding
+    internal class ServiceBusSessionTriggerBinding : ITriggerBinding
     {
         private readonly string _parameterName;
         private readonly IObjectToTypeConverter<BrokeredMessage> _converter;
-        private readonly ITriggerDataArgumentBinding<BrokeredMessage> _argumentBinding;
+        private readonly ITriggerDataArgumentBinding<BrokeredMessageSession> _argumentBinding;
         private readonly ServiceBusAccount _account;
         private readonly string _namespaceName;
         private readonly string _queueName;
@@ -29,10 +29,9 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
         private readonly string _entityPath;
         private readonly AccessRights _accessRights;
         private readonly ServiceBusConfiguration _config;
-        private readonly bool _useSessions;
 
-        public ServiceBusTriggerBinding(string parameterName, Type parameterType, 
-            ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding, ServiceBusAccount account, string queueName, AccessRights accessRights, ServiceBusConfiguration config, bool useSessions = false)
+        public ServiceBusSessionTriggerBinding(string parameterName, Type parameterType, 
+            ITriggerDataArgumentBinding<BrokeredMessageSession> argumentBinding, ServiceBusAccount account, string queueName, AccessRights accessRights, ServiceBusConfiguration config)
         {
             _parameterName = parameterName;
             _converter = CreateConverter(parameterType);
@@ -43,10 +42,9 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
             _entityPath = queueName;
             _accessRights = accessRights;
             _config = config;
-            _useSessions = useSessions;
         }
 
-        public ServiceBusTriggerBinding(string parameterName, ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding,
+        public ServiceBusSessionTriggerBinding(string parameterName, ITriggerDataArgumentBinding<BrokeredMessageSession> argumentBinding,
             ServiceBusAccount account, string topicName, string subscriptionName, AccessRights accessRights, ServiceBusConfiguration config)
         {
             _parameterName = parameterName;
@@ -64,7 +62,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
         {
             get
             {
-                return typeof(BrokeredMessage);
+                return typeof(BrokeredMessageSession);
             }
         }
 
@@ -93,20 +91,16 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
             get { return _entityPath; }
         }
 
-        public bool UseSessions
-        {
-            get { return _useSessions; }
-        }
-
         public async Task<ITriggerData> BindAsync(object value, ValueBindingContext context)
         {
-            BrokeredMessage message = value as BrokeredMessage;
+            BrokeredMessageSession messageSession = value as BrokeredMessageSession;
+            BrokeredMessage message = messageSession.Message;
             if (message == null && !_converter.TryConvert(value, out message))
             {
-                throw new InvalidOperationException("Unable to convert trigger to BrokeredMessage.");
+                throw new InvalidOperationException("Unable to convert trigger to BrokeredMessageSession.");
             }
 
-            return await _argumentBinding.BindAsync(message, context);
+            return await _argumentBinding.BindAsync(messageSession, context);
         }
 
         public Task<IListener> CreateListenerAsync(ListenerFactoryContext context)
@@ -119,11 +113,11 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
             IListenerFactory factory = null;
             if (_queueName != null)
             {
-                factory = new ServiceBusQueueListenerFactory(_account, _queueName, context.Executor, _accessRights, _config);
+                factory = new ServiceBusSessionQueueListenerFactory(_account, _queueName, context.Executor, _accessRights, _config);
             }
             else
             {
-                factory = new ServiceBusSubscriptionListenerFactory(_account, _topicName, _subscriptionName, context.Executor, _accessRights, _config);
+                factory = new ServiceBusSubscriptionSessionListenerFactory(_account, _topicName, _subscriptionName, context.Executor, _accessRights, _config);
             }
             return factory.CreateAsync(context.CancellationToken);
         }

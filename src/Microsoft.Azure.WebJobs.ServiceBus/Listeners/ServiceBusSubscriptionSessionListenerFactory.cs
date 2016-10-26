@@ -10,7 +10,7 @@ using Microsoft.ServiceBus.Messaging;
 
 namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
 {
-    internal class ServiceBusSubscriptionListenerFactory : IListenerFactory
+    internal class ServiceBusSubscriptionSessionListenerFactory : IListenerFactory
     {
         private readonly NamespaceManager _namespaceManager;
         private readonly MessagingFactory _messagingFactory;
@@ -20,7 +20,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
         private readonly AccessRights _accessRights;
         private readonly ServiceBusConfiguration _config;
 
-        public ServiceBusSubscriptionListenerFactory(ServiceBusAccount account, string topicName, string subscriptionName, ITriggeredFunctionExecutor executor, AccessRights accessRights, ServiceBusConfiguration config)
+        public ServiceBusSubscriptionSessionListenerFactory(ServiceBusAccount account, string topicName, string subscriptionName, ITriggeredFunctionExecutor executor, AccessRights accessRights, ServiceBusConfiguration config)
         {
             _namespaceManager = account.NamespaceManager;
             _messagingFactory = account.MessagingFactory;
@@ -39,13 +39,11 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Listeners
                 // Otherwise, some function could start to execute and try to output messages to entities that don't yet
                 // exist.
                 await _namespaceManager.CreateTopicIfNotExistsAsync(_topicName, cancellationToken);
-                await _namespaceManager.CreateSubscriptionIfNotExistsAsync(_topicName, _subscriptionName, false, cancellationToken);
+                await _namespaceManager.CreateSubscriptionIfNotExistsAsync(_topicName, _subscriptionName, true, cancellationToken);
             }
-
-            string entityPath = SubscriptionClient.FormatSubscriptionPath(_topicName, _subscriptionName);
-
-            ServiceBusTriggerExecutor triggerExecutor = new ServiceBusTriggerExecutor(_executor);
-            return new ServiceBusListener(_messagingFactory, entityPath, triggerExecutor, _config);
+          
+            ServiceBusSessionTriggerExecutor triggerExecutor = new ServiceBusSessionTriggerExecutor(_executor);
+            return new ServiceBusSubscriptionSessionListener(_messagingFactory, _topicName, _subscriptionName, triggerExecutor, _config);
         }
     }
 }

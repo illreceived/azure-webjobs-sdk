@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Azure.WebJobs.Host.Bindings;
+using Microsoft.ServiceBus.Messaging;
 using Newtonsoft.Json;
 using Xunit;
 
@@ -48,6 +49,8 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Bindings
             var expected = new string[] { "IntProp", "Nested", "StringProp" };
             Assert.Equal(expected, names);
         }
+
+      
 
         [Fact]
         public void FromType_DuplicatePropertiesDetected_Throws()

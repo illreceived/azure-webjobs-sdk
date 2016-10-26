@@ -51,7 +51,7 @@ namespace Microsoft.Azure.WebJobs.Host.Indexers
             ContextAccessor<IBindingProvider> bindingProviderAccessor = new ContextAccessor<IBindingProvider>();
             innerProviders.Add(new RuntimeBindingProvider(bindingProviderAccessor));
             innerProviders.Add(new DataBindingProvider());
-
+  
             IBindingProvider bindingProvider = new CompositeBindingProvider(innerProviders);
             bindingProviderAccessor.SetValue(bindingProvider);
             return bindingProvider;

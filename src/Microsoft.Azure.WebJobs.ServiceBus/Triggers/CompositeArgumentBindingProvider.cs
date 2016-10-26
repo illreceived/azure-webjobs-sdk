@@ -29,7 +29,6 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
                     return binding;
                 }
             }
-
             return null;
         }
     }

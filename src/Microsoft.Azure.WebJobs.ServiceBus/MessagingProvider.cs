@@ -103,6 +103,63 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
         }
 
         /// <summary>
+        /// Registers a Session Handler for the specified ServiceBus entity.
+        /// </summary>
+        /// <param name="factory">The <see cref="MessagingFactory"/> to use.</param>
+        /// <param name="entityPath">The ServiceBus entity to create a <see cref="MessageReceiver"/> for.</param>
+        /// <param name="sessionHandlerFactory">The SessionHandlerFactory to register.</param>
+        /// <returns></returns>
+        public virtual void RegisterSessionHandlerFactory(MessagingFactory factory, string entityPath, IMessageSessionAsyncHandlerFactory sessionHandlerFactory)
+        {
+            if (factory == null)
+            {
+                throw new ArgumentNullException("factory");
+            }
+            if (string.IsNullOrEmpty(entityPath))
+            {
+                throw new ArgumentNullException("entityPath");
+            }
+            var client = factory.CreateQueueClient(entityPath, ReceiveMode.PeekLock);
+            client.RegisterSessionHandlerFactory(sessionHandlerFactory, new SessionHandlerOptions
+            {
+                MessageWaitTimeout = TimeSpan.FromSeconds(60),
+                MaxConcurrentSessions = 5,
+                AutoComplete = _config.MessageOptions.AutoComplete
+            });
+        }
+
+        /// <summary>
+        /// Registers a Session Handler for the specified ServiceBus entity.
+        /// </summary>
+        /// <param name="factory">The <see cref="MessagingFactory"/> to use.</param>
+        /// <param name="topicPath">The ServiceBus entity to create a <see cref="MessageReceiver"/> for.</param>
+        /// <param name="subscriptionName">The ServiceBus entity to create a <see cref="MessageReceiver"/> for.</param>
+        /// <param name="sessionHandlerFactory">The SessionHandlerFactory to register.</param>
+        /// <returns></returns>
+        public virtual void RegisterSessionHandlerFactoryForTopic(MessagingFactory factory, string topicPath, string subscriptionName, IMessageSessionAsyncHandlerFactory sessionHandlerFactory)
+        {
+            if (factory == null)
+            {
+                throw new ArgumentNullException("factory");
+            }
+            if (string.IsNullOrEmpty(topicPath))
+            {
+                throw new ArgumentNullException("topicPath");
+            }
+            if (string.IsNullOrEmpty(subscriptionName))
+            {
+                throw new ArgumentNullException("subscriptionName");
+            }
+            var client = factory.CreateSubscriptionClient(topicPath, subscriptionName, ReceiveMode.PeekLock);
+            client.RegisterSessionHandlerFactory(sessionHandlerFactory, new SessionHandlerOptions
+            {
+                MessageWaitTimeout = TimeSpan.FromSeconds(60),
+                MaxConcurrentSessions = 5,
+                AutoComplete = _config.MessageOptions.AutoComplete
+            });
+        }
+
+        /// <summary>
         /// Gets the connection string for the specified connection string name.
         /// If no value is specified, the default connection string will be returned.
         /// </summary>
