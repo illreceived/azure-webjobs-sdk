@@ -340,7 +340,7 @@ namespace Microsoft.Azure.WebJobs.Host
             return new TaskSeriesTimer(command, backgroundExceptionDispatcher, Task.Delay(normalUpdateInterval));
         }
 
-        private async Task<string> TryAcquireLeaseAsync(IStorageBlockBlob blob, TimeSpan leasePeriod, CancellationToken cancellationToken)
+        private static async Task<string> TryAcquireLeaseAsync(IStorageBlockBlob blob, TimeSpan leasePeriod, CancellationToken cancellationToken)
         {
             bool blobDoesNotExist = false;
             try
@@ -397,11 +397,11 @@ namespace Microsoft.Azure.WebJobs.Host
             return null;
         }
 
-        private async Task ReleaseLeaseAsync(IStorageBlockBlob blob, string leaseId, CancellationToken cancellationToken)
+        private static async Task ReleaseLeaseAsync(IStorageBlockBlob blob, string leaseId, CancellationToken cancellationToken)
         {
             try
             {
-                // Note that this call returns without throwing if the lease is expired. See the table at:
+                // Note that call returns without throwing if the lease is expired. See the table at:
                 // http://msdn.microsoft.com/en-us/library/azure/ee691972.aspx
                 await blob.ReleaseLeaseAsync(
                     accessCondition: new AccessCondition { LeaseId = leaseId },
@@ -432,7 +432,7 @@ namespace Microsoft.Azure.WebJobs.Host
             }
         }
 
-        private async Task<bool> TryCreateAsync(IStorageBlockBlob blob, CancellationToken cancellationToken)
+        private static async Task<bool> TryCreateAsync(IStorageBlockBlob blob, CancellationToken cancellationToken)
         {
             bool isContainerNotFoundException = false;
 
@@ -489,7 +489,7 @@ namespace Microsoft.Azure.WebJobs.Host
             }
         }
 
-        private async Task WriteLeaseBlobMetadata(IStorageBlockBlob blob, string leaseId, string functionInstanceId, CancellationToken cancellationToken)
+        private static async Task WriteLeaseBlobMetadata(IStorageBlockBlob blob, string leaseId, string functionInstanceId, CancellationToken cancellationToken)
         {
             blob.Metadata.Add(FunctionInstanceMetadataKey, functionInstanceId);
 
@@ -500,7 +500,7 @@ namespace Microsoft.Azure.WebJobs.Host
                 cancellationToken: cancellationToken);
         }
 
-        private async Task ReadLeaseBlobMetadata(IStorageBlockBlob blob, CancellationToken cancellationToken)
+        private static async Task ReadLeaseBlobMetadata(IStorageBlockBlob blob, CancellationToken cancellationToken)
         {
             try
             {
