@@ -56,6 +56,12 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
         public OnMessageOptions MessageOptions { get; set; }
 
         /// <summary>
+        /// Gets or sets the default <see cref="SessionHandlerOptions" /> that will be used by
+        /// <see cref="IMessageSessionAsyncHandler"/>s.
+        /// </summary>
+        public SessionHandlerOptions SessionHandlerOptions { get; set; }
+
+        /// <summary>
         /// Gets or sets the default PrefetchCount that will be used by <see cref="MessageReceiver"/>s.
         /// </summary>
         public int PrefetchCount { get; set; }

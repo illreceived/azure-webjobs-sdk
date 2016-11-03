@@ -120,12 +120,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
                 throw new ArgumentNullException("entityPath");
             }
             var client = factory.CreateQueueClient(entityPath, ReceiveMode.PeekLock);
-            client.RegisterSessionHandlerFactory(sessionHandlerFactory, new SessionHandlerOptions
-            {
-                MessageWaitTimeout = TimeSpan.FromSeconds(60),
-                MaxConcurrentSessions = 5,
-                AutoComplete = _config.MessageOptions.AutoComplete
-            });
+            client.RegisterSessionHandlerFactory(sessionHandlerFactory, _config.SessionHandlerOptions);
         }
 
         /// <summary>
@@ -151,12 +146,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
                 throw new ArgumentNullException("subscriptionName");
             }
             var client = factory.CreateSubscriptionClient(topicPath, subscriptionName, ReceiveMode.PeekLock);
-            client.RegisterSessionHandlerFactory(sessionHandlerFactory, new SessionHandlerOptions
-            {
-                MessageWaitTimeout = TimeSpan.FromSeconds(60),
-                MaxConcurrentSessions = 5,
-                AutoComplete = _config.MessageOptions.AutoComplete
-            });
+            client.RegisterSessionHandlerFactory(sessionHandlerFactory, _config.SessionHandlerOptions);
         }
 
         /// <summary>
