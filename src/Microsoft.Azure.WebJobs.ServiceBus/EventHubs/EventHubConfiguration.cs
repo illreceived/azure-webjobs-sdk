@@ -3,11 +3,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Text;
 using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Bindings;
 using Microsoft.Azure.WebJobs.Host.Config;
 using Microsoft.Azure.WebJobs.Host.Triggers;
+using Microsoft.ServiceBus;
 using Microsoft.ServiceBus.Messaging;
 
 namespace Microsoft.Azure.WebJobs.ServiceBus
@@ -18,11 +21,51 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
     /// </summary>
     public class EventHubConfiguration : IExtensionConfigProvider, IEventHubProvider
     {
-        // Event Hub Names are case-insensitive
+        // Event Hub Names are case-insensitive.
+        // The same path can have multiple connection strings with different permissions (sending and receiving), 
+        // so we track senders and receivers separately and infer which one to use based on the EventHub (sender) vs. EventHubTrigger (receiver) attribute. 
+        // Connection strings may also encapsulate different endpoints. 
         private readonly Dictionary<string, EventHubClient> _senders = new Dictionary<string, EventHubClient>(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, EventProcessorHost> _listeners  = new Dictionary<string, EventProcessorHost>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ReceiverCreds> _receiverCreds = new Dictionary<string, ReceiverCreds>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, EventProcessorHost> _explicitlyProvidedHosts = new Dictionary<string, EventProcessorHost>(StringComparer.OrdinalIgnoreCase);
 
-        private readonly List<Action<JobHostConfiguration>> _deferredWork = new List<Action<JobHostConfiguration>>();
+        private readonly EventProcessorOptions _options;
+        private readonly PartitionManagerOptions _partitionOptions; // optional, used to create EventProcessorHost
+
+        private string _defaultStorageString; // set to JobHostConfig.StorageConnectionString
+
+        /// <summary>
+        /// Name of the blob container that the EventHostProcessor instances uses to coordinate load balancing listening on an event hub. 
+        /// Each event hub gets its own blob prefix within the container. 
+        /// </summary>
+        public const string LeaseContainerName = "azure-webjobs-eventhub";
+
+        /// <summary>
+        /// default constructor. Callers can reference this without having any assembly references to service bus assemblies. 
+        /// </summary>
+        public EventHubConfiguration()
+            : this(null, null)
+        {
+        }
+
+        /// <summary>
+        /// Constructs a new instance.
+        /// </summary>
+        /// <param name="options">The optional <see cref="EventProcessorOptions"/> to use when receiving events.</param>
+        /// <param name="partitionOptions">Optional <see cref="PartitionManagerOptions"/> to use to configure any EventProcessorHosts. </param>
+        public EventHubConfiguration(
+            EventProcessorOptions options, 
+            PartitionManagerOptions partitionOptions = null)
+        {
+            if (options == null)
+            {
+                options = EventProcessorOptions.DefaultOptions;
+                options.MaxBatchSize = 1000;
+            }
+            _partitionOptions = partitionOptions;
+
+            _options = options;
+        }
 
         /// <summary>
         /// Add an existing client for sending messages to an event hub.  Infer the eventHub name from client.path
@@ -53,7 +96,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
             {
                 throw new ArgumentNullException("client");
             }
-            
+           
             _senders[eventHubName] = client;
         }
 
@@ -61,7 +104,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
         /// Add a connection for sending messages to an event hub. Connect via the connection string. 
         /// </summary>
         /// <param name="eventHubName">name of the event hub. </param>
-        /// <param name="sendConnectionString">connection string for sending messages</param>
+        /// <param name="sendConnectionString">connection string for sending messages. If this includes an EntityPath, it takes precedence over the eventHubName parameter.</param>
         public void AddSender(string eventHubName, string sendConnectionString)
         {
             if (eventHubName == null)
@@ -72,7 +115,14 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
             {
                 throw new ArgumentNullException("sendConnectionString");
             }
-            var client = EventHubClient.CreateFromConnectionString(sendConnectionString, eventHubName);
+
+            ServiceBusConnectionStringBuilder sb = new ServiceBusConnectionStringBuilder(sendConnectionString);
+            if (string.IsNullOrWhiteSpace(sb.EntityPath))
+            {
+                sb.EntityPath = eventHubName;
+            }            
+
+            var client = EventHubClient.CreateFromConnectionString(sb.ToString());
             AddEventHubClient(eventHubName, client);
         }
 
@@ -97,14 +147,14 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
                 throw new ArgumentNullException("listener");
             }
 
-            _listeners[eventHubName] = listener;
+            _explicitlyProvidedHosts[eventHubName] = listener;
         }
 
         /// <summary>
         /// Add a connection for listening on events from an event hub. Connect via the connection string and use the SDK's built-in storage account.
         /// </summary>
         /// <param name="eventHubName">name of the event hub</param>
-        /// <param name="receiverConnectionString">connection string for receiving messages</param>
+        /// <param name="receiverConnectionString">connection string for receiving messages. This can encapsulate other service bus properties like the namespace and endpoints.</param>
         public void AddReceiver(string eventHubName, string receiverConnectionString)
         {
             if (eventHubName == null)
@@ -116,13 +166,10 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
                 throw new ArgumentNullException("receiverConnectionString");
             }
 
-            // We can't get the storage string until we get a JobHostConfig. 
-            // So verify the parameter upfront, but defer the creation. 
-            _deferredWork.Add((jobHostConfig) =>
-           {
-               string storageConnectionString = jobHostConfig.StorageConnectionString;
-               this.AddReceiver(eventHubName, receiverConnectionString, storageConnectionString);
-           });
+            this._receiverCreds[eventHubName] = new ReceiverCreds
+            {
+                 EventHubConnectionString = receiverConnectionString
+            };
         }
 
         /// <summary>
@@ -146,45 +193,170 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
                 throw new ArgumentNullException("storageConnectionString");
             }
 
-            string eventProcessorHostName = Guid.NewGuid().ToString();
-
-            EventProcessorHost eventProcessorHost = new EventProcessorHost(
-                eventProcessorHostName, 
-                eventHubName, 
-                EventHubConsumerGroup.DefaultGroupName,
-                receiverConnectionString, 
-                storageConnectionString);
-
-            this.AddEventProcessorHost(eventHubName, eventProcessorHost);
+            this._receiverCreds[eventHubName] = new ReceiverCreds
+            {
+                EventHubConnectionString = receiverConnectionString,
+                StorageConnectionString = storageConnectionString
+            };
         }
         
-        private EventHubClient GetEventHubClient(string eventHubName)
+        internal EventHubClient GetEventHubClient(string eventHubName)
         {
             EventHubClient client;
             if (_senders.TryGetValue(eventHubName, out client))             
             {
                 return client;
             }
-            throw new InvalidOperationException("No event hub sending named " + eventHubName);
+            throw new InvalidOperationException("No event hub sender named " + eventHubName);
         }
 
-        EventProcessorHost IEventHubProvider.GetEventProcessorHost(string eventHubName)
+        EventProcessorHost IEventHubProvider.GetEventProcessorHost(string eventHubName, string consumerGroup)
         {
-            EventProcessorHost host;
-            if (_listeners.TryGetValue(eventHubName, out host))
+            ReceiverCreds creds;
+            if (this._receiverCreds.TryGetValue(eventHubName, out creds))
             {
+                // Common case. Create a new EventProcessorHost instance to listen. 
+                string eventProcessorHostName = Guid.NewGuid().ToString();
+
+                if (consumerGroup == null)
+                {
+                    consumerGroup = EventHubConsumerGroup.DefaultGroupName;
+                }
+                var storageConnectionString = creds.StorageConnectionString;
+                if (storageConnectionString == null)
+                {
+                    storageConnectionString = _defaultStorageString;
+                }
+
+                // If the connection string provides a hub name, that takes precedence. 
+                // Note that connection strings *can't* specify a consumerGroup, so must always be passed in. 
+                string actualPath = eventHubName;
+                ServiceBusConnectionStringBuilder sb = new ServiceBusConnectionStringBuilder(creds.EventHubConnectionString);
+                if (sb.EntityPath != null)
+                {
+                    actualPath = sb.EntityPath;
+                    sb.EntityPath = null; // need to remove to use with EventProcessorHost
+                }
+
+                var @namespace = GetServiceBusNamespace(sb);
+                var blobPrefix = GetBlobPrefix(actualPath, @namespace);
+
+                // Use blob prefix support available in EPH starting in 2.2.6 
+                EventProcessorHost host = new EventProcessorHost(
+                    hostName: eventProcessorHostName,
+                    eventHubPath: actualPath,
+                    consumerGroupName: consumerGroup, 
+                    eventHubConnectionString: sb.ToString(),
+                    storageConnectionString: storageConnectionString, 
+                    leaseContainerName: LeaseContainerName,
+                   leaseBlobPrefix: blobPrefix);
+
+                if (_partitionOptions != null)
+                {
+                    host.PartitionManagerOptions = _partitionOptions;
+                }
+
                 return host;
+            }
+            else
+            {
+                // Rare case: a power-user caller specifically provided an event processor host to use. 
+                EventProcessorHost host;
+                if (_explicitlyProvidedHosts.TryGetValue(eventHubName, out host))
+                {
+                    return host;
+                }
             }
             throw new InvalidOperationException("No event hub receiver named " + eventHubName);
         }
 
+        private static string EscapeStorageCharacter(char character)
+        {
+            var ordinalValue = (ushort)character;
+            if (ordinalValue < 0x100)
+            {
+                return string.Format(CultureInfo.InvariantCulture, ":{0:X2}", ordinalValue);
+            }
+            else
+            {
+                return string.Format(CultureInfo.InvariantCulture, "::{0:X4}", ordinalValue);
+            }
+        }
+                
+        // Escape a blob path.  
+        // For diagnostics, we want human-readble strings that resemble the input. 
+        // Inputs are most commonly alphanumeric with a fex extra chars (dash, underscore, dot). 
+        // Escape character is a ':', which is also escaped. 
+        // Blob names are case sensitive; whereas input is case insensitive, so normalize to lower.  
+        private static string EscapeBlobPath(string path)
+        {
+            StringBuilder sb = new StringBuilder(path.Length);
+            foreach (char c in path)
+            {
+                if (c >= 'a' && c <= 'z')
+                {
+                    sb.Append(c);
+                }
+                else if (c == '-' || c == '_' || c == '.') 
+                {
+                    // Potentially common carahcters. 
+                    sb.Append(c);
+                }
+                else if (c >= 'A' && c <= 'Z')
+                {
+                    sb.Append((char)(c - 'A' + 'a')); // ToLower
+                }
+                else if (c >= '0' && c <= '9')
+                {
+                    sb.Append(c);
+                }
+                else
+                {
+                    sb.Append(EscapeStorageCharacter(c));
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        private static string GetServiceBusNamespace(ServiceBusConnectionStringBuilder connectionString)
+        {
+            // EventHubs only have 1 endpoint. 
+            var url = connectionString.Endpoints.First();
+            var @namespace = url.Host;
+            return @namespace;
+        }
+
+        /// <summary>
+        /// Get the blob prefix used with EventProcessorHost for a given event hub.  
+        /// </summary>
+        /// <param name="eventHubName">the event hub path</param>
+        /// <param name="serviceBusNamespace">the event hub's service bus namespace.</param>
+        /// <returns>a blob prefix path that can be passed to EventProcessorHost.</returns>
+        /// <remarks>
+        /// An event hub is defined by it's path and namespace. The namespace is extracted from the connection string. 
+        /// This must be an injective one-to-one function because:
+        /// 1. multiple machines listening on the same event hub must use the same blob prefix. This means it must be deterministic. 
+        /// 2. different event hubs must not resolve to the same path. 
+        /// </remarks>        
+        public static string GetBlobPrefix(string eventHubName, string serviceBusNamespace)
+        {
+            if (eventHubName == null)
+            {
+                throw new ArgumentNullException("eventHubName");
+            }
+            if (serviceBusNamespace == null)
+            {
+                throw new ArgumentNullException("serviceBusNamespace");
+            }
+
+            string key = EscapeBlobPath(serviceBusNamespace) + "/" + EscapeBlobPath(eventHubName) + "/";
+            return key;
+        }
+
         EventProcessorOptions IEventHubProvider.GetOptions()
         {
-            EventProcessorOptions options = new EventProcessorOptions
-            {
-                MaxBatchSize = 1000
-            };
-            return options;
+            return _options;
         }
 
         void IExtensionConfigProvider.Initialize(ExtensionConfigContext context)
@@ -194,12 +366,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
                 throw new ArgumentNullException("context");
             }
 
-            // Deferred list 
-            foreach (var action in _deferredWork)
-            {
-                action(context.Config);
-            }
-            _deferredWork.Clear();
+            _defaultStorageString = context.Config.StorageConnectionString;
 
             // get the services we need to construct our binding providers
             INameResolver nameResolver = context.Config.NameResolver;
@@ -209,6 +376,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
             cm.AddConverter<string, EventData>(ConvertString2EventData);
             cm.AddConverter<EventData, string>(ConvertEventData2String);
             cm.AddConverter<byte[], EventData>(ConvertBytes2EventData); // direct, handles non-string representations
+            cm.AddConverter<EventData, byte[]>(ConvertEventData2Bytes); // direct, handles non-string representations
 
             var bf = new BindingFactory(nameResolver, cm);
 
@@ -239,10 +407,27 @@ namespace Microsoft.Azure.WebJobs.ServiceBus
             return eventData;
         }
 
+        private static byte[] ConvertEventData2Bytes(EventData input)
+        {
+            var bytes = input.GetBytes();
+            return bytes;
+        }
+
         private static EventData ConvertString2EventData(string input)
         {
             var eventData = new EventData(Encoding.UTF8.GetBytes(input));
             return eventData;
+        }
+
+        // Hold credentials for a given eventHub name. 
+        // Multiple consumer groups (and multiple listeners) on the same hub can share the same credentials. 
+        private class ReceiverCreds
+        {
+            // Required.  
+            public string EventHubConnectionString { get; set; }
+
+            // Optional. If not found, use the stroage from JobHostConfiguration
+            public string StorageConnectionString { get; set; }
         }
     }
 }

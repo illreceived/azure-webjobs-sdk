@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host.Bindings;
 using Microsoft.Azure.WebJobs.Host.Storage.Table;
 using Microsoft.WindowsAzure.Storage.Table;
+using Newtonsoft.Json.Linq;
 
 namespace Microsoft.Azure.WebJobs.Host.Tables
 {
@@ -22,8 +23,8 @@ namespace Microsoft.Azure.WebJobs.Host.Tables
             }
 
             Type entityType = GetCollectorItemType(parameter.ParameterType);
-
-            if (!TableClient.ImplementsOrEqualsITableEntity(entityType))
+                        
+            if (!TableClient.ImplementsOrEqualsITableEntity(entityType) && !TypeUtility.IsJObject(entityType))
             {
                 TableClient.VerifyContainsProperty(entityType, "RowKey");
                 TableClient.VerifyContainsProperty(entityType, "PartitionKey");
@@ -69,8 +70,7 @@ namespace Microsoft.Azure.WebJobs.Host.Tables
             public Task<IValueProvider> BindAsync(IStorageTable value, ValueBindingContext context)
             {
                 TableEntityWriter<TElement> tableWriter = new TableEntityWriter<TElement>(value);
-                IValueProvider provider = new TableEntityCollectorBinder<TElement>(value, tableWriter,
-                    typeof(ICollector<TElement>));
+                IValueProvider provider = new TableEntityCollectorBinder<TElement>(value, tableWriter, typeof(ICollector<TElement>));
                 return Task.FromResult(provider);
             }
         }
@@ -90,8 +90,7 @@ namespace Microsoft.Azure.WebJobs.Host.Tables
             public Task<IValueProvider> BindAsync(IStorageTable value, ValueBindingContext context)
             {
                 PocoEntityWriter<TElement> collector = new PocoEntityWriter<TElement>(value);
-                IValueProvider provider = new PocoEntityCollectorBinder<TElement>(value, collector,
-                    typeof(ICollector<TElement>));
+                IValueProvider provider = new PocoEntityCollectorBinder<TElement>(value, collector, typeof(ICollector<TElement>));
                 return Task.FromResult(provider);
             }
         }

@@ -9,6 +9,7 @@ using Microsoft.Azure.WebJobs.Host.Bindings;
 using Microsoft.Azure.WebJobs.Host.Executors;
 using Microsoft.Azure.WebJobs.Host.Indexers;
 using Microsoft.Azure.WebJobs.Host.Loggers;
+using Microsoft.Azure.WebJobs.Host.Timers;
 
 namespace Microsoft.Azure.WebJobs
 {
@@ -24,11 +25,6 @@ namespace Microsoft.Azure.WebJobs
         private readonly JobHostTraceConfiguration _traceConfiguration = new JobHostTraceConfiguration();
         private readonly ConcurrentDictionary<Type, object> _services = new ConcurrentDictionary<Type, object>();
         private IJobHostContextFactory _contextFactory;
-
-        // TEMP: This will go away in a future release (once ServiceBusConnectionString is removed from this class)
-        private bool _serviceBusConnectionStringSet;
-        private string _serviceBusConnectionString;
-
         private string _hostId;
 
         /// <summary>
@@ -62,6 +58,7 @@ namespace Microsoft.Azure.WebJobs
             IExtensionRegistry extensions = new DefaultExtensionRegistry();
             ITypeLocator typeLocator = new DefaultTypeLocator(ConsoleProvider.Out, extensions);
             IConverterManager converterManager = new ConverterManager();
+            IWebJobsExceptionHandler exceptionHandler = new WebJobsExceptionHandler();
 
             AddService<IExtensionRegistry>(extensions);
             AddService<StorageClientFactory>(new StorageClientFactory());
@@ -69,11 +66,12 @@ namespace Microsoft.Azure.WebJobs
             AddService<IJobActivator>(DefaultJobActivator.Instance);
             AddService<ITypeLocator>(typeLocator);
             AddService<IConverterManager>(converterManager);
+            AddService<IWebJobsExceptionHandler>(exceptionHandler);
 
             string value = ConfigurationUtility.GetSettingFromConfigOrEnvironment(Constants.EnvironmentSettingName);
             IsDevelopment = string.Compare(Constants.DevelopmentEnvironmentValue, value, StringComparison.OrdinalIgnoreCase) == 0;
         }
-   
+
         /// <summary>
         /// Gets a value indicating whether the <see cref="JobHost"/> is running in a Development environment.
         /// You can use this property in conjunction with <see cref="UseDevelopmentSettings"/> to default
@@ -161,37 +159,6 @@ namespace Microsoft.Azure.WebJobs
             set { _storageAccountProvider.StorageConnectionString = value; }
         }
 
-        /// <summary>
-        /// Gets or sets the Azure ServiceBus connection string.
-        /// </summary>
-        [Obsolete("Use ServiceBusConfiguration, and pass in via JobHostConfiguration.UseServiceBus.")]
-        public string ServiceBusConnectionString
-        {
-            get
-            {
-                if (!_serviceBusConnectionStringSet)
-                {
-                    _serviceBusConnectionString = AmbientConnectionStringProvider.Instance.GetConnectionString(ConnectionStringNames.ServiceBus);
-                    _serviceBusConnectionStringSet = true;
-                }
-
-                return _serviceBusConnectionString;
-            }
-            set
-            {
-                _serviceBusConnectionString = value;
-                _serviceBusConnectionStringSet = true;
-            }
-        }
-
-        /// <summary>
-        /// Gets or sets the timeout that function invocations will be constrained to.
-        /// <see cref="TimeoutAttribute"/> for details. If <see cref="TimeoutAttribute"/>
-        /// is applied to a function or its containing class, that timeout value will override
-        /// this global value.
-        /// </summary>
-        public TimeSpan? FunctionTimeout { get; set; }
-
         /// <summary>Gets or sets the type locator.</summary>
         public ITypeLocator TypeLocator
         {
@@ -210,7 +177,7 @@ namespace Microsoft.Azure.WebJobs
         }
 
         /// <summary>
-        /// Gets or sets the name resolver used during indexing. 
+        /// Gets or sets the name resolver used during indexing.
         /// </summary>
         public INameResolver NameResolver
         {
@@ -229,7 +196,7 @@ namespace Microsoft.Azure.WebJobs
         }
 
         /// <summary>
-        /// Gets a helper object for constructing common binding rules for extensions. 
+        /// Gets a helper object for constructing common binding rules for extensions.
         /// </summary>
         public BindingFactory BindingFactory
         {
@@ -281,7 +248,7 @@ namespace Microsoft.Azure.WebJobs
             }
             set
             {
-                // Expose this for unit tests to override. 
+                // Expose this for unit tests to override.
                 _contextFactory = value;
             }
         }
@@ -308,7 +275,7 @@ namespace Microsoft.Azure.WebJobs
         }
 
         /// <summary>
-        /// Configures various configuration settings on this <see cref="JobHostConfiguration"/> to 
+        /// Configures various configuration settings on this <see cref="JobHostConfiguration"/> to
         /// optimize for local development.
         /// </summary>
         public void UseDevelopmentSettings()

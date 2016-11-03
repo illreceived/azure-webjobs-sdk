@@ -10,23 +10,18 @@ namespace Microsoft.Azure.WebJobs.Logging
 {
     // Index that provides list of recention invocations per function type.
     // 1 entity per Intance of a function that's executed. 
-    internal class RecentPerFuncEntity : TableEntity, IRecentFunctionEntry
+    internal class RecentPerFuncEntity : TableEntity, IRecentFunctionEntry, IEntityWithEpoch
     {
         const string PartitionKeyFormat = TableScheme.RecentFuncIndexPK;
         const string RowKeyPrefix = "{0}-{1:D20}-";
-        const string RowKeyFormat = "{0}-{1:D20}-{2}"; // functionName, timeBucket(descending), salt
-
-        // Have a salt value for writing to avoid collisions since timeBucket is not gauranteed to be unique
-        // when many functions are quickly run within a single time tick. 
-        static int _salt;
-
+        const string RowKeyFormat = "{0}-{1:D20}-{2}"; // functionId, timeBucket(descending), salt
+        
         internal static RecentPerFuncEntity New(string containerName, FunctionInstanceLogItem item)
         {
             return new RecentPerFuncEntity
             {
                 PartitionKey = PartitionKeyFormat,
-                RowKey = RowKeyTimeStampDescending(item.FunctionName, item.StartTime),
-
+                RowKey = RowKeyTimeStampDescending(item.FunctionId, item.StartTime, item.FunctionInstanceId),
                 FunctionName = item.FunctionName,
                 DisplayName = item.GetDisplayTitle(),
                 FunctionInstanceId = item.FunctionInstanceId.ToString(),
@@ -41,42 +36,52 @@ namespace Microsoft.Azure.WebJobs.Logging
             RecentFunctionQuery queryParams
             )
         {
-            string functionName = queryParams.FunctionName;
+            var functionId = queryParams.FunctionId;
             var start = queryParams.Start;
             var end = queryParams.End;
 
-            string rowKeyStart = RowKeyTimeStampDescendingPrefix(functionName, end);
+            string rowKeyStart = RowKeyTimeStampDescendingPrefix(functionId, end);
 
             // add a tick to create a greater row key so that we lexically compare
             var start2 = (start == DateTime.MinValue) ? start : start.AddTicks(-1);
-            string rowKeyEnd = RowKeyTimeStampDescendingPrefix(functionName, start2);
+            string rowKeyEnd = RowKeyTimeStampDescendingPrefix(functionId, start2);
 
             string partKey = PartitionKeyFormat;
 
             var rangeQuery = TableScheme.GetRowsInRange<RecentPerFuncEntity>(
                 partKey, rowKeyStart, rowKeyEnd);
 
-            rangeQuery.Take(queryParams.MaximumResults);
+            if (queryParams.MaximumResults > 0)
+            {
+                rangeQuery = rangeQuery.Take(queryParams.MaximumResults);
+            }
             return rangeQuery;
         }
 
+        public DateTime GetEpoch()
+        {
+            return this.StartTime.UtcDateTime;
+        }
 
         // No salt. This is a prefix, so we'll pick up all ranges.
-        private static string RowKeyTimeStampDescendingPrefix(string functionName, DateTime startTime)
+        private static string RowKeyTimeStampDescendingPrefix(FunctionId functionId, DateTime startTime)
         {
             var x = (DateTime.MaxValue.Ticks - startTime.Ticks);
 
-            string rowKey = string.Format(CultureInfo.InvariantCulture, RowKeyPrefix, TableScheme.NormalizeFunctionName(functionName), x);
+            string rowKey = string.Format(CultureInfo.InvariantCulture, RowKeyPrefix,
+                functionId, x);
             return rowKey;
         }
 
-        internal static string RowKeyTimeStampDescending(string functionName, DateTime startTime)
+        // Salt must be deterministic. 
+        internal static string RowKeyTimeStampDescending(FunctionId functionId, DateTime startTime, Guid salt)
         {
             var x = (DateTime.MaxValue.Ticks - startTime.Ticks);
 
             // Need Salt since timestamp may not be unique
-            int salt = Interlocked.Increment(ref _salt);
-            string rowKey = string.Format(CultureInfo.InvariantCulture, RowKeyFormat, TableScheme.NormalizeFunctionName(functionName), x, salt);
+            int salt2 = salt.GetHashCode();
+            string rowKey = string.Format(CultureInfo.InvariantCulture, RowKeyFormat, 
+                functionId, x, salt2);
             return rowKey;
         }
 

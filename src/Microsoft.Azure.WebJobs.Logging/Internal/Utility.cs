@@ -1,13 +1,16 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
+using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Table;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 
@@ -71,6 +74,129 @@ namespace Microsoft.Azure.WebJobs.Logging
             byte[] bytes = Convert.FromBase64String(base64);
             string str = Encoding.UTF8.GetString(bytes);
             return str;
+        }
+
+
+        private static async Task SafeCreateAsync(this CloudTable table, int intervalMilliseconds = 5000, int totalMilliseconds = 120*1000)
+        {
+            while(true)
+            {
+                try
+                {
+                    await table.CreateIfNotExistsAsync();
+                    return; 
+                }
+                catch (StorageException e)
+                {
+                    var code = (HttpStatusCode)e.RequestInformation.HttpStatusCode;
+                    // This can throw 409 if the table is in the process of being deleted.                     
+                    if (code != HttpStatusCode.Conflict)
+                    {
+                        throw;
+                    }
+
+                    if (totalMilliseconds < 0)
+                    {
+                        // timeout. 
+                        throw;
+                    }
+                }
+                await Task.Delay(intervalMilliseconds);
+                totalMilliseconds -= intervalMilliseconds;
+            }
+        }
+
+
+        // Do a query. 
+        // If table doesn't exist, return 0-length list of results. 
+        public static Task<TElement[]> SafeExecuteQueryAsync<TElement>(this CloudTable table, TableQuery<TElement> query)
+            where TElement : ITableEntity, new()
+        {
+            try
+            {
+                IEnumerable<TElement> results = table.ExecuteQuery(query);
+                var rows = results.ToArray();
+                return Task.FromResult(rows);
+            }
+            catch (StorageException e)
+            {
+                var code = (HttpStatusCode)e.RequestInformation.HttpStatusCode;
+                if (code == HttpStatusCode.NotFound)
+                {
+                    return Task.FromResult(new TElement[0]);
+                }
+                throw;
+            }
+        }
+
+        // Do a query
+        // If table doesn't exist, return null. 
+        public static async Task<TableQuerySegment<TElement>> SafeExecuteQuerySegmentedAsync<TElement>(
+            this CloudTable table,
+            TableQuery<TElement> query, 
+            TableContinuationToken token, 
+            CancellationToken cancellationToken)
+        where TElement : ITableEntity, new()
+        {
+            try
+            {
+                var segment = await table.ExecuteQuerySegmentedAsync<TElement>(
+                  query,
+                  token,
+                  cancellationToken);
+                return segment;
+            }
+            catch (StorageException e)
+            {
+                var code = (HttpStatusCode)e.RequestInformation.HttpStatusCode;
+                if (code == HttpStatusCode.NotFound)
+                {
+                    // TableQuerySegment ctor is private, so return null. 
+                    return null;
+                }
+                throw;
+            }
+        }
+
+        // Write table entry. 
+        // If table doesn't exist (such as if it was deleted), then recreate it. 
+        public static async Task SafeExecuteAsync(this CloudTable table, TableBatchOperation batch)
+        {
+            try
+            {
+                await table.ExecuteBatchAsync(batch);
+                return;
+            }
+            catch (StorageException e)
+            {
+                var code = (HttpStatusCode)e.RequestInformation.HttpStatusCode;
+                if (code != HttpStatusCode.NotFound)
+                {
+                    throw;
+                }
+            }
+
+            await table.SafeCreateAsync();
+            await table.ExecuteBatchAsync(batch);
+        }
+
+        public static async Task<TableResult> SafeExecuteAsync(this CloudTable table, TableOperation operation)
+        {
+            try
+            {
+                return await table.ExecuteAsync(operation);
+            }
+            catch (StorageException e)
+            {
+                var code = (HttpStatusCode)e.RequestInformation.HttpStatusCode;
+                if (code != HttpStatusCode.NotFound)
+                {
+                    throw;
+                }
+            }
+
+            await table.SafeCreateAsync();  
+            return await table.ExecuteAsync(operation);
         }
     }
 }

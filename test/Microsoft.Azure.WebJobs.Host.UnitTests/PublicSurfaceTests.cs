@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Logging;
 using Xunit;
 
 namespace Microsoft.Azure.WebJobs.Host.UnitTests
@@ -40,6 +42,64 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
                     Assert.Equal("Microsoft.WindowsAzure.Storage", name);
                 }
             }
+        }
+
+        [Fact]
+        public void LoggingPublicSurface_LimitedToSpecificTypes()
+        {
+            var assembly = typeof(ILogWriter).Assembly;
+
+            var expected = new[]
+            {
+                "FunctionId",
+                "ActivationEvent",
+                "CloudTableInstanceCountLogger",
+                "FunctionInstanceLogItem",
+                "FunctionInstanceLogItemExtensions",
+                "FunctionInstanceStatus",
+                "FunctionStatusExtensions",
+                "FunctionVolumeTimelineEntry",
+                "IAggregateEntry",
+                "IFunctionDefinition",
+                "IFunctionInstanceBaseEntry",
+                "ILogReader",
+                "ILogWriter",
+                "ILogTableProvider",
+                "InstanceCountEntity",
+                "InstanceCountLoggerBase",
+                "IRecentFunctionEntry",
+                "LogFactory",
+                "ProjectionHelper",
+                "RecentFunctionQuery",
+                "Segment`1"
+            };
+
+            AssertPublicTypes(expected, assembly);
+        }
+
+
+        [Fact]
+        public void ServiceBusPublicSurface_LimitedToSpecificTypes()
+        {
+            var assembly = typeof(ServiceBusAttribute).Assembly;
+
+            var expected = new[]
+            {
+                "EventHubAttribute",
+                "EventHubConfiguration",
+                "EventHubJobHostConfigurationExtensions",
+                "EventHubTriggerAttribute",
+                "EventHubAsyncCollector",
+                "MessageProcessor",
+                "MessagingProvider",
+                "ServiceBusAccountAttribute",
+                "ServiceBusAttribute",
+                "ServiceBusConfiguration",
+                "ServiceBusJobHostConfigurationExtensions",
+                "ServiceBusTriggerAttribute"
+            };
+
+            AssertPublicTypes(expected, assembly);
         }
 
         [Fact]
@@ -81,8 +141,11 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
 
             var expected = new[]
             {
+                "DefaultNameResolver",
                 "FunctionInstanceLogEntry",
                 "IConverterManager",
+                "IConverterManagerExtensions",
+                "FuncConverter`3",
                 "BindingFactory",
                 "ITriggerBindingStrategy`2",
                 "ConnectionStringNames",
@@ -143,9 +206,10 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
                 "TraceEvent",
                 "BindingTemplateExtensions",
                 "FunctionIndexingException",
-                "AmbientBindingContext",
-                "IBinderEx",
-                "RuntimeBindingContext"
+                "Binder",
+                "IWebJobsExceptionHandler",
+                "WebJobsExceptionHandler",
+                "FunctionTimeoutException"
             };
 
             AssertPublicTypes(expected, assembly);

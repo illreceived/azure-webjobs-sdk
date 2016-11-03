@@ -2,8 +2,9 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
-using Microsoft.WindowsAzure.Storage.Table;
 using System.Globalization;
+using System.Text;
+using Microsoft.WindowsAzure.Storage.Table;
 
 namespace Microsoft.Azure.WebJobs.Logging
 {
@@ -14,11 +15,35 @@ namespace Microsoft.Azure.WebJobs.Logging
     {
         // List all partition keys in once place to ensure they're disjoint. 
         internal const string InstancePK = "I"; // InstanceTableEntity
-        internal const string TimelineAggregatePK = "T"; // TimelineAggregateEntity
-        internal const string RecentFuncIndexPK = "R"; // RecentPerFuncEntity
+        internal const string TimelineAggregatePK = "T2"; // TimelineAggregateEntity
+        internal const string RecentFuncIndexPK = "R2"; // RecentPerFuncEntity
         internal const string ContainerActivePK = "C"; // ContainerActiveEntity
-        internal const string FuncDefIndexPK = "FD"; // FunctionDefinitionEntity
+        internal const string FuncDefIndexPK = "FD2"; // FunctionDefinitionEntity
         internal const string InstanceCountPK = "IA"; // InstanceCountEntity
+
+        internal static string GetPartitionKey(string prefix, string hostName)
+        {
+            return prefix + "-" + NormalizeFunctionName(hostName);
+        }
+
+        // Given a rowkey prefix, generate the next prefix. This can be used to find all row keys with a given prefix. 
+        internal static string NextRowKey(string rowKeyStart)
+        {
+            int len = rowKeyStart.Length;
+            char ch = rowKeyStart[len - 1];
+            char ch2 = (char)(((int)ch) + 1);
+
+            var x = rowKeyStart.Substring(0, len - 1) + ch2;
+            return x;
+        }
+
+        public static TableQuery<TElement> GetRowsWithPrefixAsync<TElement>(
+            string partitionKey,
+            string rowKeyPrefix) 
+        {
+            string rowKeyEnd = NextRowKey(rowKeyPrefix);
+            return GetRowsInRange<TElement>(partitionKey, rowKeyPrefix, rowKeyEnd);
+        }
 
         // Read entire partition
         internal static TableQuery<TElement> GetRowsInPartition<TElement>(string partitionKey)
@@ -56,34 +81,86 @@ namespace Microsoft.Azure.WebJobs.Logging
 
         public static string Get1stTerm(string rowKey)
         {
-            int i = rowKey.IndexOf('-');
-            if (i >= 0)
-            {
-                return rowKey.Substring(0, i);
-            }
-            throw new InvalidOperationException("Row key is in illegal format: " + rowKey);
+            return GetNthTerm(rowKey, 1);
         }
 
         public static string Get2ndTerm(string rowKey)
         {
-            int i = rowKey.IndexOf('-');
-            if (i >= 0)
+            return GetNthTerm(rowKey, 2);
+        }
+
+        // RowKey - string of parts joined by '-'. 
+        // number - 1-based number.
+        public static string GetNthTerm(string rowKey, int number)
+        {
+            int pos = 0;
+
+            while (true)
             {
-                i++;
-                int i2 = rowKey.IndexOf('-', i);
-                if (i2 >= 0)
+                int i = rowKey.IndexOf('-', pos);
+                if (i == -1)
                 {
-                    int len = (i2 - i);
-                    string term = rowKey.Substring(i, len);
+                    i = rowKey.Length;
+                }
+                
+                if (number == 1)
+                {
+                    int len = i - pos;
+                    string term = rowKey.Substring(pos, len);
                     return term;
                 }
+                number--;
+                if (number == 0)
+                {
+                    break;
+                }
+                pos = i + 1;                     
             }
             throw new InvalidOperationException("Row key is in illegal format: " + rowKey);
         }
 
+        private static string EscapeStorageCharacter(char character)
+        {
+            var ordinalValue = (ushort)character;
+            if (ordinalValue < 0x100)
+            {
+                return string.Format(CultureInfo.InvariantCulture, ":{0:X2}", ordinalValue);
+            }
+            else
+            {
+                return string.Format(CultureInfo.InvariantCulture, "::{0:X4}", ordinalValue);
+            }
+        }
+
+        // Assumes we have a valid function name. 
+        // Function names are case-insensitive, case-preserving. 
+        // Table storage is case-sensitive. So need to normalize case to use as table keys. 
+        // Normalize must be one-to-one to avoid collisions. 
+        // Escape any non-alphanumeric characters so that we 
+        //  a) have a valid rowkey name 
+        //  b) don't have characeters that conflict with separators in the row key (like '-')
         public static string NormalizeFunctionName(string functionName)
         {
-            return functionName.ToLower(CultureInfo.InvariantCulture);
+            StringBuilder sb = new StringBuilder();
+            foreach (var ch in functionName)
+            {
+                if (ch >= 'a' && ch <= 'z')
+                {
+                    sb.Append(ch);
+                }
+                else if (ch >= 'A' && ch <= 'Z')
+                {
+                    sb.Append((char)(ch - 'A' + 'a'));
+                }
+                else if (ch >= '0' && ch <= '9')
+                {
+                    sb.Append(ch);
+                }
+                else {
+                    sb.Append(EscapeStorageCharacter(ch));
+                }
+            }
+            return sb.ToString();            
         }
 
         public static string NormalizeContainerName(string containerName)

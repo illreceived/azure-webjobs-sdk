@@ -1,9 +1,8 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
-// Licensed under the MIT License. See License.txt in the project root for license information.﻿
+// Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
@@ -13,8 +12,8 @@ using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.WebJobs.Host.Executors;
 using Microsoft.Azure.WebJobs.Host.Indexers;
 using Microsoft.Azure.WebJobs.Host.Listeners;
-using Microsoft.Azure.WebJobs.Host.Loggers;
 using Microsoft.Azure.WebJobs.Host.Protocols;
+using Microsoft.WindowsAzure.Storage;
 
 namespace Microsoft.Azure.WebJobs
 {
@@ -41,7 +40,7 @@ namespace Microsoft.Azure.WebJobs
         private JobHostContext _context;
         private IListener _listener;
         private object _contextLock = new object();
-        
+
         private int _state;
         private Task _stopTask;
         private object _stopTaskLock = new object();
@@ -54,6 +53,15 @@ namespace Microsoft.Azure.WebJobs
         public JobHost()
             : this(new JobHostConfiguration())
         {
+        }
+
+        static JobHost()
+        {
+            // add webjobs to user agent for all storage calls
+            OperationContext.GlobalSendingRequest += (sender, e) =>
+            {
+                e.Request.UserAgent += " AzureWebJobs";
+            };
         }
 
         /// <summary>
@@ -75,7 +83,7 @@ namespace Microsoft.Azure.WebJobs
             {
                 throw new ArgumentNullException("serviceProvider");
             }
-                        
+
             _contextFactory = serviceProvider.GetJobHostContextFactory();
             if (_contextFactory == null)
             {

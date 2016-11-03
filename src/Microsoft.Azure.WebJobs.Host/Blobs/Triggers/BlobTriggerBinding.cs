@@ -32,13 +32,14 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
         private readonly IBlobPathSource _path;
         private readonly IHostIdProvider _hostIdProvider;
         private readonly IQueueConfiguration _queueConfiguration;
-        private readonly IBackgroundExceptionDispatcher _backgroundExceptionDispatcher;
+        private readonly IWebJobsExceptionHandler _exceptionHandler;
         private readonly IContextSetter<IBlobWrittenWatcher> _blobWrittenWatcherSetter;
         private readonly IContextSetter<IMessageEnqueuedWatcher> _messageEnqueuedWatcherSetter;
         private readonly ISharedContextProvider _sharedContextProvider;
         private readonly TraceWriter _trace;
         private readonly IAsyncObjectToTypeConverter<IStorageBlob> _converter;
         private readonly IReadOnlyDictionary<string, Type> _bindingDataContract;
+        private readonly SingletonManager _singletonManager;
 
         public BlobTriggerBinding(ParameterInfo parameter,
             IArgumentBinding<IStorageBlob> argumentBinding,
@@ -47,10 +48,11 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
             IBlobPathSource path,
             IHostIdProvider hostIdProvider,
             IQueueConfiguration queueConfiguration,
-            IBackgroundExceptionDispatcher backgroundExceptionDispatcher,
+            IWebJobsExceptionHandler exceptionHandler,
             IContextSetter<IBlobWrittenWatcher> blobWrittenWatcherSetter,
             IContextSetter<IMessageEnqueuedWatcher> messageEnqueuedWatcherSetter,
             ISharedContextProvider sharedContextProvider,
+            SingletonManager singletonManager,
             TraceWriter trace)
         {
             if (parameter == null)
@@ -88,9 +90,9 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
                 throw new ArgumentNullException("queueConfiguration");
             }
 
-            if (backgroundExceptionDispatcher == null)
+            if (exceptionHandler == null)
             {
-                throw new ArgumentNullException("backgroundExceptionDispatcher");
+                throw new ArgumentNullException("exceptionHandler");
             }
 
             if (blobWrittenWatcherSetter == null)
@@ -106,6 +108,11 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
             if (sharedContextProvider == null)
             {
                 throw new ArgumentNullException("sharedContextProvider");
+            }
+
+            if (singletonManager == null)
+            {
+                throw new ArgumentNullException("singletonManager");
             }
 
             if (trace == null)
@@ -126,10 +133,11 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
             _path = path;
             _hostIdProvider = hostIdProvider;
             _queueConfiguration = queueConfiguration;
-            _backgroundExceptionDispatcher = backgroundExceptionDispatcher;
+            _exceptionHandler = exceptionHandler;
             _blobWrittenWatcherSetter = blobWrittenWatcherSetter;
             _messageEnqueuedWatcherSetter = messageEnqueuedWatcherSetter;
             _sharedContextProvider = sharedContextProvider;
+            _singletonManager = singletonManager;
             _trace = trace;
             _converter = CreateConverter(_blobClient);
             _bindingDataContract = CreateBindingDataContract(path);
@@ -224,8 +232,8 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
             IStorageBlobContainer container = _blobClient.GetContainerReference(_path.ContainerNamePattern);
 
             var factory = new BlobListenerFactory(_hostIdProvider, _queueConfiguration,
-                _backgroundExceptionDispatcher, _blobWrittenWatcherSetter, _messageEnqueuedWatcherSetter,
-                _sharedContextProvider, _trace, context.Descriptor.Id, _hostAccount, _dataAccount, container, _path, context.Executor);
+                _exceptionHandler, _blobWrittenWatcherSetter, _messageEnqueuedWatcherSetter,
+                _sharedContextProvider, _trace, context.Descriptor.Id, _hostAccount, _dataAccount, container, _path, context.Executor, _singletonManager);
 
             return factory.CreateAsync(context.CancellationToken);
         }

@@ -20,7 +20,38 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
     /// </summary>
     internal static class BindingFactoryHelpers
     {
-         // Bind a trigger argument to various parameter types. 
+        // If a conversion function exists from TMessage --> exactType, then use it. 
+        // else return null.
+        private static SimpleTriggerArgumentBinding<TMessage, TTriggerValue> GetDirectTriggerBinding<TMessage, TTriggerValue>(
+            Type exactType,
+            ITriggerBindingStrategy<TMessage, TTriggerValue> bindingStrategy,
+            IConverterManager converterManager)
+        {
+            // Wrapper to convert runtime Type to a compile time  generic. 
+            var method = typeof(BindingFactoryHelpers).GetMethod("GetDirectTriggerBindingWorker", BindingFlags.NonPublic | BindingFlags.Static);
+            method = method.MakeGenericMethod(typeof(TMessage), typeof(TTriggerValue), exactType);
+            var argumentBinding = MethodInvoke<SimpleTriggerArgumentBinding<TMessage, TTriggerValue>>(
+                method, 
+                bindingStrategy, converterManager);
+            return argumentBinding;
+        }
+
+        private static SimpleTriggerArgumentBinding<TMessage, TTriggerValue>
+            GetDirectTriggerBindingWorker<TMessage, TTriggerValue, TUserType>(
+            ITriggerBindingStrategy<TMessage, TTriggerValue> bindingStrategy,
+            IConverterManager converterManager)
+        {
+            var directConvert = converterManager.GetConverter<TMessage, TUserType, Attribute>();
+            if (directConvert != null)
+            {
+                var argumentBinding = new CustomTriggerArgumentBinding<TMessage, TTriggerValue, TUserType>(
+                    bindingStrategy, converterManager, directConvert);
+                return argumentBinding;
+            }
+            return null;
+        }
+
+        // Bind a trigger argument to various parameter types. 
         // Handles either T or T[], 
         internal static ITriggerDataArgumentBinding<TTriggerValue> GetTriggerArgumentBinding<TMessage, TTriggerValue>(
             ITriggerBindingStrategy<TMessage, TTriggerValue> bindingStrategy,
@@ -29,15 +60,25 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
             out bool singleDispatch)
         {
             ITriggerDataArgumentBinding<TTriggerValue> argumentBinding = null;
+
+            // If there's a direct binding from TMessage to the parameter's exact type; use that. 
+            // This takes precedence over array bindings. 
+            argumentBinding = GetDirectTriggerBinding<TMessage, TTriggerValue>(parameter.ParameterType, bindingStrategy, converterManager);
+            if (argumentBinding != null)
+            {
+                singleDispatch = true;
+                return argumentBinding;
+            }
+
+            // Or array 
             if (parameter.ParameterType.IsArray)
             {
                 // dispatch the entire batch in a single call. 
                 singleDispatch = false;
 
                 var elementType = parameter.ParameterType.GetElementType();
-
                 var innerArgumentBinding = GetTriggerArgumentElementBinding<TMessage, TTriggerValue>(elementType, bindingStrategy, converterManager);
-
+                                
                 argumentBinding = new ArrayTriggerArgumentBinding<TMessage, TTriggerValue>(bindingStrategy, innerArgumentBinding, converterManager);
 
                 return argumentBinding;
@@ -59,6 +100,13 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
             ITriggerBindingStrategy<TMessage, TTriggerValue> bindingStrategy,
             IConverterManager converterManager)
         {
+            var argumentBinding = GetDirectTriggerBinding<TMessage, TTriggerValue>(elementType, bindingStrategy, converterManager);
+            if (argumentBinding != null)
+            {
+                // Exact match in converter manager. Always takes precedence. 
+                return argumentBinding;
+            }
+
             if (elementType == typeof(TMessage))
             {
                 return new SimpleTriggerArgumentBinding<TMessage, TTriggerValue>(bindingStrategy, converterManager);
@@ -69,6 +117,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
             }
             else
             {
+                // Catch-all. 
                 // Default, assume a Poco
                 return new PocoTriggerArgumentBinding<TMessage, TTriggerValue>(bindingStrategy, converterManager, elementType);
             }
@@ -154,7 +203,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
             
             Type parameterType = parameter.ParameterType;
 
-            Func<TAttribute, IValueProvider> argumentBuilder = null;                                            
+            FuncArgumentBuilder<TAttribute> argumentBuilder = null;                                            
 
             // C# reflection trivia: If .IsOut = true, then IsGenericType = false. 
             if (parameterType.IsGenericType)
@@ -164,7 +213,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
 
             if (parameter.IsOut)
             {
-                argumentBuilder = BindAsyncCollectorToOut(parameter, converterManager, buildFromAttribute, cloner);
+                argumentBuilder = BindAsyncCollectorToOut<TAttribute, TMessage>(parameter, converterManager, buildFromAttribute, cloner);
             }
 
             if (argumentBuilder == null)
@@ -195,7 +244,11 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         }
 
         // Helper to bind an IAsyncCollector<TMessage> raw object to an IAsyncCollector<TUser> or ICollecter<TUser> and invoke converter manager as needed.
-        private static Func<TAttribute, IValueProvider> BindAsyncCollectorToInterface<TAttribute, TMessage>(IConverterManager converterManager, Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute, AttributeCloner<TAttribute> cloner, Type parameterType, Func<TAttribute, IValueProvider> argumentBuilder) where TAttribute : Attribute
+        private static FuncArgumentBuilder<TAttribute> BindAsyncCollectorToInterface<TAttribute, TMessage>(
+            IConverterManager converterManager, 
+            Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute, 
+            AttributeCloner<TAttribute> cloner, Type parameterType,
+            FuncArgumentBuilder<TAttribute> argumentBuilder) where TAttribute : Attribute
         {
             var genericType = parameterType.GetGenericTypeDefinition();
             var elementType = parameterType.GetGenericArguments()[0];
@@ -205,7 +258,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
                 if (elementType == typeof(TMessage))
                 {
                     // Bind to IAsyncCollector<TMessage>. This is the "purest" binding, no adaption needed. 
-                    argumentBuilder = (attrResolved) =>
+                    argumentBuilder = (attrResolved, context) =>
                     {
                         IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                         var invokeString = cloner.GetInvokeString(attrResolved);
@@ -225,7 +278,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
                 if (elementType == typeof(TMessage))
                 {
                     // Bind to ICollector<TMessage> This just needs an Sync/Async wrapper
-                    argumentBuilder = (attrResolved) =>
+                    argumentBuilder = (attrResolved, context) =>
                     {
                         IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                         var invokeString = cloner.GetInvokeString(attrResolved);
@@ -245,14 +298,14 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         }
 
         // Helper to bind an IAsyncCollector<TMessage> to an 'out TUser' pattern, and invoke converter manager as needed. 
-        private static Func<TAttribute, IValueProvider> BindAsyncCollectorToOut<TAttribute, TMessage>(
+        private static FuncArgumentBuilder<TAttribute> BindAsyncCollectorToOut<TAttribute, TMessage>(
             ParameterInfo parameter, 
             IConverterManager converterManager, 
             Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute, 
             AttributeCloner<TAttribute> cloner) 
             where TAttribute : Attribute
         {
-            Func<TAttribute, IValueProvider> argumentBuilder;
+            FuncArgumentBuilder<TAttribute> argumentBuilder;
             Type elementType = parameter.ParameterType.GetElementType();
 
             // How should "out byte[]" bind?
@@ -268,7 +321,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
             {
                 if (elementType == typeof(TMessage[]))
                 {
-                    argumentBuilder = (attrResolved) =>
+                    argumentBuilder = (attrResolved, context) =>
                     {
                         IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                         var invokeString = cloner.GetInvokeString(attrResolved);
@@ -288,7 +341,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
                 //    out TMessage
                 if (elementType == typeof(TMessage))
                 {
-                    argumentBuilder = (attrResolved) =>
+                    argumentBuilder = (attrResolved, context) =>
                     {
                         IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                         var invokeString = cloner.GetInvokeString(attrResolved);
@@ -314,7 +367,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
             return argumentBuilder;
         }
 
-        private static Func<TAttribute, IValueProvider> DynamicBuildOutArrayArgument<TAttribute, TMessage>(
+        private static FuncArgumentBuilder<TAttribute> DynamicBuildOutArrayArgument<TAttribute, TMessage>(
             Type typeMessageSrc,
             IConverterManager cm,
             Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
@@ -323,24 +376,24 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         {
             var method = typeof(BindingFactoryHelpers).GetMethod("BuildOutArrayArgument", BindingFlags.NonPublic | BindingFlags.Static);
             method = method.MakeGenericMethod(typeof(TAttribute), typeof(TMessage), typeMessageSrc);
-            var argumentBuilder = MethodInvoke<Func<TAttribute, IValueProvider>>(method, cm, buildFromAttribute, cloner);
+            var argumentBuilder = MethodInvoke<FuncArgumentBuilder<TAttribute>>(method, cm, buildFromAttribute, cloner);
             return argumentBuilder;
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1811:AvoidUncalledPrivateCode", Justification = "Dynamically invoked")]
-        private static Func<TAttribute, IValueProvider> BuildOutArrayArgument<TAttribute, TMessage, TMessageSrc>(
+        private static FuncArgumentBuilder<TAttribute> BuildOutArrayArgument<TAttribute, TMessage, TMessageSrc>(
             IConverterManager cm,
             Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
             AttributeCloner<TAttribute> cloner)
             where TAttribute : Attribute
         {
             // Other 
-            Func<TMessageSrc, TAttribute, TMessage> convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
-            Func<TAttribute, IValueProvider> argumentBuilder = (attrResolved) =>
+            var convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
+            FuncArgumentBuilder<TAttribute> argumentBuilder = (attrResolved, context) =>
             {
                 IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                 IAsyncCollector<TMessageSrc> obj = new TypedAsyncCollectorAdapter<TMessageSrc, TMessage, TAttribute>(
-                    raw, convert, attrResolved);
+                    raw, convert, attrResolved, context);
                 string invokeString = cloner.GetInvokeString(attrResolved);
                 return new OutArrayValueProvider<TMessageSrc>(obj, invokeString);
             };
@@ -350,7 +403,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         // Helper to dynamically invoke BuildICollectorArgument with the proper generics
         // Can we bind to 'out TUser'?  Requires converter manager to supply a TUser--> TMessage converter. 
         // Return null if we can't bind it. 
-        private static Func<TAttribute, IValueProvider> DynamicInvokeBuildOutArgument<TAttribute, TMessage>(
+        private static FuncArgumentBuilder<TAttribute> DynamicInvokeBuildOutArgument<TAttribute, TMessage>(
                 Type typeMessageSrc,
                 IConverterManager cm,
                 Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
@@ -359,28 +412,28 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         {
             var method = typeof(BindingFactoryHelpers).GetMethod("BuildOutArgument", BindingFlags.NonPublic | BindingFlags.Static);
             method = method.MakeGenericMethod(typeof(TAttribute), typeof(TMessage), typeMessageSrc);
-            var argumentBuilder = MethodInvoke<Func<TAttribute, IValueProvider>>(method, cm, buildFromAttribute, cloner);
+            var argumentBuilder = MethodInvoke<FuncArgumentBuilder<TAttribute>>(method, cm, buildFromAttribute, cloner);
             return argumentBuilder;
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1811:AvoidUncalledPrivateCode", Justification = "Dynamically invoked")]
-        private static Func<TAttribute, IValueProvider> BuildOutArgument<TAttribute, TMessage, TMessageSrc>(
+        private static FuncArgumentBuilder<TAttribute> BuildOutArgument<TAttribute, TMessage, TMessageSrc>(
             IConverterManager cm,
             Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
             AttributeCloner<TAttribute> cloner)
             where TAttribute : Attribute
         {
             // Other 
-            Func<TMessageSrc, TAttribute, TMessage> convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
+            var convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
             if (convert == null)
             {
                 return null;
             }
-            Func<TAttribute, IValueProvider> argumentBuilder = (attrResolved) =>
+            FuncArgumentBuilder<TAttribute> argumentBuilder = (attrResolved, context) =>
             {
                 IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                 IAsyncCollector<TMessageSrc> obj = new TypedAsyncCollectorAdapter<TMessageSrc, TMessage, TAttribute>(
-                    raw, convert, attrResolved);
+                    raw, convert, attrResolved, context);
                 string invokeString = cloner.GetInvokeString(attrResolved);
                 return new OutValueProvider<TMessageSrc>(obj, invokeString);
             };
@@ -388,7 +441,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         }
 
         // Helper to dynamically invoke BuildICollectorArgument with the proper generics
-        private static Func<TAttribute, IValueProvider> DynamicInvokeBuildICollectorArgument<TAttribute, TMessage>(
+        private static FuncArgumentBuilder<TAttribute> DynamicInvokeBuildICollectorArgument<TAttribute, TMessage>(
                 Type typeMessageSrc,
                 IConverterManager cm,
                 Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
@@ -397,28 +450,28 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         {
             var method = typeof(BindingFactoryHelpers).GetMethod("BuildICollectorArgument", BindingFlags.NonPublic | BindingFlags.Static);
             method = method.MakeGenericMethod(typeof(TAttribute), typeof(TMessage), typeMessageSrc);
-            var argumentBuilder = MethodInvoke<Func<TAttribute, IValueProvider>>(method, cm, buildFromAttribute, cloner);
+            var argumentBuilder = MethodInvoke<FuncArgumentBuilder<TAttribute>>(method, cm, buildFromAttribute, cloner);
             return argumentBuilder;
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1811:AvoidUncalledPrivateCode", Justification = "Dynamic invoke")]
-        private static Func<TAttribute, IValueProvider> BuildICollectorArgument<TAttribute, TMessage, TMessageSrc>(
+        private static FuncArgumentBuilder<TAttribute> BuildICollectorArgument<TAttribute, TMessage, TMessageSrc>(
             IConverterManager cm,
             Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
             AttributeCloner<TAttribute> cloner)
             where TAttribute : Attribute
         {
             // Other 
-            Func<TMessageSrc, TAttribute, TMessage> convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
+            var convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
             if (convert == null)
             {
                 ThrowMissingConversionError(typeof(TMessageSrc));
             }
-            Func<TAttribute, IValueProvider> argumentBuilder = (attrResolved) =>
+            FuncArgumentBuilder<TAttribute> argumentBuilder = (attrResolved, context) =>
             {
                 IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                 IAsyncCollector<TMessageSrc> obj = new TypedAsyncCollectorAdapter<TMessageSrc, TMessage, TAttribute>(
-                    raw, convert, attrResolved);
+                    raw, convert, attrResolved, context);
                 ICollector<TMessageSrc> obj2 = new SyncAsyncCollectorAdapter<TMessageSrc>(obj);
                 string invokeString = cloner.GetInvokeString(attrResolved);
                 return new AsyncCollectorValueProvider<ICollector<TMessageSrc>, TMessage>(obj2, raw, invokeString);
@@ -427,7 +480,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         }
 
         // Helper to dynamically invoke BuildIAsyncCollectorArgument with the proper generics
-        private static Func<TAttribute, IValueProvider> DynamicInvokeBuildIAsyncCollectorArgument<TAttribute, TMessage>(
+        private static FuncArgumentBuilder<TAttribute> DynamicInvokeBuildIAsyncCollectorArgument<TAttribute, TMessage>(
                 Type typeMessageSrc,
                 IConverterManager cm,
                 Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
@@ -436,26 +489,26 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
         {
             var method = typeof(BindingFactoryHelpers).GetMethod("BuildIAsyncCollectorArgument", BindingFlags.NonPublic | BindingFlags.Static);
             method = method.MakeGenericMethod(typeof(TAttribute), typeof(TMessage), typeMessageSrc);
-            var argumentBuilder = MethodInvoke<Func<TAttribute, IValueProvider>>(method, cm, buildFromAttribute, cloner);
+            var argumentBuilder = MethodInvoke<FuncArgumentBuilder<TAttribute>>(method, cm, buildFromAttribute, cloner);
             return argumentBuilder;
         }
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1811:AvoidUncalledPrivateCode", Justification = "Dynamically invoked")]
-        private static Func<TAttribute, IValueProvider> BuildIAsyncCollectorArgument<TAttribute, TMessage, TMessageSrc>(
+        private static FuncArgumentBuilder<TAttribute> BuildIAsyncCollectorArgument<TAttribute, TMessage, TMessageSrc>(
                 IConverterManager cm,
                 Func<TAttribute, IAsyncCollector<TMessage>> buildFromAttribute,
                 AttributeCloner<TAttribute> cloner)
             where TAttribute : Attribute
         {
-            Func<TMessageSrc, TAttribute, TMessage> convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
+            var convert = cm.GetConverter<TMessageSrc, TMessage, TAttribute>();
             if (convert == null)
             {
                 ThrowMissingConversionError(typeof(TMessageSrc));
             }
-            Func<TAttribute, IValueProvider> argumentBuilder = (attrResolved) =>
+            FuncArgumentBuilder<TAttribute> argumentBuilder = (attrResolved, context) =>
             {
                 IAsyncCollector<TMessage> raw = buildFromAttribute(attrResolved);
                 IAsyncCollector<TMessageSrc> obj = new TypedAsyncCollectorAdapter<TMessageSrc, TMessage, TAttribute>(
-                    raw, convert, attrResolved);
+                    raw, convert, attrResolved, context);
                 var invokeString = cloner.GetInvokeString(attrResolved);
                 return new AsyncCollectorValueProvider<IAsyncCollector<TMessageSrc>, TMessage>(obj, raw, invokeString);
             };

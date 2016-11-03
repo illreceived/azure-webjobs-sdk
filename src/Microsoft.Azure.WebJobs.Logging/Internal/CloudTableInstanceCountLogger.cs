@@ -1,10 +1,10 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
-using Microsoft.WindowsAzure.Storage.Table;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.WindowsAzure.Storage.Table;
 
 namespace Microsoft.Azure.WebJobs.Logging.Internal
 {
@@ -13,7 +13,7 @@ namespace Microsoft.Azure.WebJobs.Logging.Internal
     /// </summary>
     public class CloudTableInstanceCountLogger : InstanceCountLoggerBase
     {
-        private readonly CloudTable _instanceTable;
+        private readonly ILogTableProvider _tableLookup;
         private readonly string _containerName;
 
         private readonly int _containerSize;
@@ -27,12 +27,12 @@ namespace Microsoft.Azure.WebJobs.Logging.Internal
         }
 
         ///
-        public CloudTableInstanceCountLogger(string containerName, CloudTable instanceTable, int containerSize)
+        public CloudTableInstanceCountLogger(string containerName, ILogTableProvider tableLookup, int containerSize)
         {
             // Default polling interval
             this.PollingInterval = TimeSpan.FromSeconds(60);
 
-            this._instanceTable = instanceTable;
+            this._tableLookup = tableLookup;
             this._containerName = containerName;
             this._containerSize = containerSize;
         }
@@ -53,7 +53,9 @@ namespace Microsoft.Azure.WebJobs.Logging.Internal
             };
 
             TableOperation opInsert = TableOperation.Insert(entity);
-            await _instanceTable.ExecuteAsync(opInsert);
+
+            var instanceTable = _tableLookup.GetTableForDateTime(new DateTime(ticks, DateTimeKind.Utc));
+            await instanceTable.SafeExecuteAsync(opInsert);
         }
 
         /// <summary>

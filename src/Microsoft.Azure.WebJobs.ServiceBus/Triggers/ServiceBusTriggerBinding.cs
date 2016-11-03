@@ -29,33 +29,32 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
         private readonly string _entityPath;
         private readonly AccessRights _accessRights;
         private readonly ServiceBusConfiguration _config;
-        private readonly bool _useSessions;
 
-        public ServiceBusTriggerBinding(string parameterName, Type parameterType, 
-            ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding, ServiceBusAccount account, string queueName, AccessRights accessRights, ServiceBusConfiguration config, bool useSessions = false)
+        public ServiceBusTriggerBinding(string parameterName, Type parameterType, ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding, ServiceBusAccount account,
+            AccessRights accessRights, ServiceBusConfiguration config, string queueName)
+            : this(parameterName, parameterType, argumentBinding, account, accessRights, config)
+        {
+            _queueName = queueName;
+            _entityPath = queueName;
+        }
+
+        public ServiceBusTriggerBinding(string parameterName, Type parameterType, ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding, ServiceBusAccount account,
+            AccessRights accessRights, ServiceBusConfiguration config, string topicName, string subscriptionName)
+            : this(parameterName, parameterType, argumentBinding, account, accessRights, config)
+        {
+            _topicName = topicName;
+            _subscriptionName = subscriptionName;
+            _entityPath = SubscriptionClient.FormatSubscriptionPath(topicName, subscriptionName);
+        }
+
+        private ServiceBusTriggerBinding(string parameterName, Type parameterType, ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding, 
+            ServiceBusAccount account, AccessRights accessRights, ServiceBusConfiguration config) 
         {
             _parameterName = parameterName;
             _converter = CreateConverter(parameterType);
             _argumentBinding = argumentBinding;
             _account = account;
             _namespaceName = ServiceBusClient.GetNamespaceName(account);
-            _queueName = queueName;
-            _entityPath = queueName;
-            _accessRights = accessRights;
-            _config = config;
-            _useSessions = useSessions;
-        }
-
-        public ServiceBusTriggerBinding(string parameterName, ITriggerDataArgumentBinding<BrokeredMessage> argumentBinding,
-            ServiceBusAccount account, string topicName, string subscriptionName, AccessRights accessRights, ServiceBusConfiguration config)
-        {
-            _parameterName = parameterName;
-            _argumentBinding = argumentBinding;
-            _account = account;
-            _namespaceName = ServiceBusClient.GetNamespaceName(account);
-            _topicName = topicName;
-            _subscriptionName = subscriptionName;
-            _entityPath = SubscriptionClient.FormatSubscriptionPath(topicName, subscriptionName);
             _accessRights = accessRights;
             _config = config;
         }
@@ -91,11 +90,6 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
         public string EntityPath
         {
             get { return _entityPath; }
-        }
-
-        public bool UseSessions
-        {
-            get { return _useSessions; }
         }
 
         public async Task<ITriggerData> BindAsync(object value, ValueBindingContext context)

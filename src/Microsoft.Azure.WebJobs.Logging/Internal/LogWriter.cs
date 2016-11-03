@@ -1,9 +1,10 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
-
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Logging.Internal;
@@ -23,10 +24,15 @@ namespace Microsoft.Azure.WebJobs.Logging
         private CancellationTokenSource _cancelBackgroundFlusher = null;
         private Task _backgroundFlusherTask = null;
 
-        // All writing goes to 1 table. 
-        private readonly CloudTable _instanceTable;
-        private readonly string _containerName; // compute container (not Blob Container) that we're logging for. 
+        // Writes go to multiple tables, sharded by timestamp. 
+        private readonly ILogTableProvider _logTableProvider;
 
+        // We have 3 levels of logging. 
+        // HostName identifies a homogenous set of compute (such as a scale out).  It's like site name. 
+        // MachineName is the name of this machine. 
+        // _uniqueId discerns between multiple loggers on the same machine. This ensures multiple writers don't conflict with each other. 
+        private readonly string _hostName;
+        private readonly string _machineName; // compute container (not Blob Container) that we're logging for. 
         private string _uniqueId = Guid.NewGuid().ToString();
 
         // If there's a new function, then write it's definition. 
@@ -35,29 +41,33 @@ namespace Microsoft.Azure.WebJobs.Logging
         object _lock = new object();
 
         // Track for batching. 
-        List<InstanceTableEntity> _instances = new List<InstanceTableEntity>();
-        List<RecentPerFuncEntity> _recents = new List<RecentPerFuncEntity>();
-        List<FunctionDefinitionEntity> _funcDefs = new List<FunctionDefinitionEntity>();
+        EntityCollection<InstanceTableEntity> _instances = new EntityCollection<InstanceTableEntity>();
+        EntityCollection<RecentPerFuncEntity> _recents = new EntityCollection<RecentPerFuncEntity>();
+        EntityCollection<FunctionDefinitionEntity> _funcDefs = new EntityCollection<FunctionDefinitionEntity>();
 
-        Dictionary<string, TimelineAggregateEntity> _timespan = new Dictionary<string, TimelineAggregateEntity>();
+        EntityCollection<TimelineAggregateEntity> _timespan = new EntityCollection<TimelineAggregateEntity>();
 
         // Container is common shared across all log writer instances 
         static ContainerActiveLogger _container;
         CloudTableInstanceCountLogger _instanceLogger;
 
-        public LogWriter(string computerContainerName, CloudTable table)
+        public LogWriter(string hostName, string machineName, ILogTableProvider logTableProvider)
         {
-            if (computerContainerName == null)
+            if (machineName == null)
             {
-                throw new ArgumentNullException("computerContainerName");
+                throw new ArgumentNullException("machineName");
             }
-            if (table == null)
+            if (logTableProvider == null)
             {
-                throw new ArgumentNullException("table");
+                throw new ArgumentNullException("logTableProvider");
             }
-            this._containerName = computerContainerName;         
-            table.CreateIfNotExists();
-            this._instanceTable = table;
+            if (hostName == null)
+            {
+                throw new ArgumentNullException("hostName");
+            }
+            this._hostName = hostName;
+            this._machineName = machineName;         
+            this._logTableProvider = logTableProvider;
         }
 
         // Background flusher. 
@@ -127,19 +137,20 @@ namespace Microsoft.Azure.WebJobs.Logging
         public async Task AddAsync(FunctionInstanceLogItem item, CancellationToken cancellationToken = default(CancellationToken))
         {
             item.Validate();
+            item.FunctionId = FunctionId.Build(this._hostName, item.FunctionName);
 
             {
                 lock(_lock)
                 {
                     StartBackgroundFlusher();
                     if (_container == null)
-                    {
-                        _container = new ContainerActiveLogger(_containerName, _instanceTable);
+                    {                        
+                        _container = new ContainerActiveLogger(_machineName, _logTableProvider);
                     }
                     if (_instanceLogger == null)
                     {
-                        int size = GetContainerSize();
-                        _instanceLogger = new CloudTableInstanceCountLogger(_containerName, _instanceTable, size);
+                        int size = GetContainerSize();                        
+                        _instanceLogger = new CloudTableInstanceCountLogger(_machineName, _logTableProvider, size);
                     }
                 }
                 if (item.IsCompleted())
@@ -158,37 +169,38 @@ namespace Microsoft.Azure.WebJobs.Logging
             {
                 if (_seenFunctions.Add(item.FunctionName))
                 {
-                    _funcDefs.Add(FunctionDefinitionEntity.New(item.FunctionName));
+                    _funcDefs.Add(FunctionDefinitionEntity.New(item.FunctionId, item.FunctionName));
                 }
             }
-
-            if (!item.IsCompleted())
-            {
-                return;
-            }
-
+                   
+            // Both Start and Completed log here. Completed will overwrite a Start entry. 
             lock (_lock)
             {
                 _instances.Add(InstanceTableEntity.New(item));
-                _recents.Add(RecentPerFuncEntity.New(_containerName, item));
+                _recents.Add(RecentPerFuncEntity.New(_machineName, item));
             }
 
-            // Time aggregate is flushed later. 
-            // Don't flush until we've moved onto the next interval. 
+            if (item.IsCompleted())
             {
-                var rowKey = TimelineAggregateEntity.RowKeyTimeInterval(item.FunctionName, item.StartTime, _uniqueId);
-
-                lock(_lock)
+                // For completed items, aggregate total passed and failed within a time bucket. 
+                // Time aggregate is flushed later. 
+                // Don't flush until we've moved onto the next interval. 
                 {
-                    TimelineAggregateEntity x;
-                    if (!_timespan.TryGetValue(rowKey, out x))
+                    var newEntity = TimelineAggregateEntity.New(_machineName, item.FunctionId, item.StartTime, _uniqueId);
+                    lock (_lock)
                     {
-                        // Can we flush the old counters?
-                        x = TimelineAggregateEntity.New(_containerName, item.FunctionName, item.StartTime, _uniqueId);
-                        _timespan[rowKey] = x;
+                        // If we already have an entity at this time slot (specified by rowkey), then use that so that 
+                        // we update the existing counters. 
+                        var existingEntity = _timespan.GetFromRowKey(newEntity.RowKey);
+                        if (existingEntity == null)
+                        {
+                            _timespan.Add(newEntity);
+                            existingEntity = newEntity;
+                        }
+
+                        Increment(item, existingEntity);
                     }
-                    Increment(item, x);
-                }
+                }           
             }
 
             // Flush every 100 items, maximize with tables. 
@@ -205,12 +217,12 @@ namespace Microsoft.Azure.WebJobs.Logging
 
             lock (_lock)
             {
-                foreach (var kv in _timespan)
+                foreach (var entity in _timespan)
                 {
-                    long thisBucket = TimeBucket.ConvertToBucket(kv.Value.Timestamp.DateTime);
+                    long thisBucket = TimeBucket.ConvertToBucket(entity.Timestamp.DateTime);
                     if ((thisBucket < currentBucket) || always)
                     {
-                        flush.Add(kv.Value);
+                        flush.Add(entity);
                     }
                 }
 
@@ -229,9 +241,9 @@ namespace Microsoft.Azure.WebJobs.Logging
         // Could flush on a timer. 
         private async Task FlushIntancesAsync(bool always)
         {
-            InstanceTableEntity[] x1;
-            RecentPerFuncEntity[] x2;
-            FunctionDefinitionEntity[] x3;
+            InstanceTableEntity[] instances;
+            RecentPerFuncEntity[] recentInvokes;
+            FunctionDefinitionEntity[] functionDefinitions;
 
             lock (_lock)
             {
@@ -243,16 +255,16 @@ namespace Microsoft.Azure.WebJobs.Logging
                     } 
                 }
 
-                x1 = _instances.ToArray();
-                x2 = _recents.ToArray();
-                x3 = _funcDefs.ToArray();
+                instances = _instances.ToArray();
+                recentInvokes = _recents.ToArray();
+                functionDefinitions = _funcDefs.ToArray();
                 _instances.Clear();
                 _recents.Clear();
                 _funcDefs.Clear();
             }
-            Task t1 = WriteBatchAsync(x1);
-            Task t2 = WriteBatchAsync(x2);
-            Task t3 = WriteBatchAsync(x3);
+            Task t1 = WriteBatchAsync(instances);
+            Task t2 = WriteBatchAsync(recentInvokes);
+            Task t3 = WriteBatchAsync(functionDefinitions);
             await Task.WhenAll(t1, t2, t3);
         }
 
@@ -263,8 +275,12 @@ namespace Microsoft.Azure.WebJobs.Logging
 
             if (_container != null)
             {
-                await _instanceLogger.StopAsync();
                 await _container.StopAsync();
+            }
+
+            if (_instanceLogger != null)
+            {
+                await _instanceLogger.StopAsync();
             }
         }
 
@@ -292,14 +308,15 @@ namespace Microsoft.Azure.WebJobs.Logging
 
         // Limit of 100 per batch. 
         // Parallel uploads. 
-        private async Task WriteBatchAsync<T>(IEnumerable<T> e1) where T : TableEntity
+        private async Task WriteBatchAsync<T>(IEnumerable<T> e1) where T : TableEntity, IEntityWithEpoch
         {            
             HashSet<string> rowKeys = new HashSet<string>();
 
             int batchSize = 90;
 
-            TableBatchOperation batch = new TableBatchOperation();
-
+            Dictionary<string, TableBatchOperation> batches = new Dictionary<string, TableBatchOperation>();
+            Dictionary<string, CloudTable> tables = new Dictionary<string, CloudTable>();
+            
             List<Task> t = new List<Task>();
 
             foreach (var e in e1)
@@ -309,22 +326,94 @@ namespace Microsoft.Azure.WebJobs.Logging
                     // Already present
                 }
 
+                var epoch = e.GetEpoch();
+                var instanceTable = this._logTableProvider.GetTableForDateTime(epoch);
+                TableBatchOperation batch;
+                if (!batches.TryGetValue(instanceTable.Name, out batch))
+                {
+                    tables[instanceTable.Name] = instanceTable;
+                    batch = new TableBatchOperation();
+                    batches[instanceTable.Name] = batch;
+                }
+
                 batch.InsertOrReplace(e);
                 if (batch.Count >= batchSize)
                 {
-                    Task tUpload = _instanceTable.ExecuteBatchAsync(batch);
+                    Task tUpload = instanceTable.SafeExecuteAsync(batch);
                     t.Add(tUpload);
+
                     batch = new TableBatchOperation();
+                    batches[instanceTable.Name] = batch;
                 }
             }
-            if (batch.Count > 0)
+
+            foreach (var kv in batches)
             {
-                Task tUpload = _instanceTable.ExecuteBatchAsync(batch);
-                t.Add(tUpload);
+                var tableName = kv.Key;
+                var instanceTable = tables[tableName];
+                var batch = kv.Value;
+                if (batch.Count > 0)
+                {
+                    Task tUpload = instanceTable.SafeExecuteAsync(batch);
+                    t.Add(tUpload);
+                }
             }
 
 
             await Task.WhenAll(t);
-        }    
+        }
+
+        // Collection where adding in the same RowKey replaces a previous entry with that key. 
+        // This is single-threaded. Caller must lock. 
+        // All entities in this collection must have unique row keys across the partition and tables.
+        private class EntityCollection<T>  : IEnumerable<T> where T : TableEntity 
+        {
+            // Ordering doesn't matter since azure tables will order them for us. 
+            private Dictionary<string, T> _map = new Dictionary<string, T>();
+
+            public void Add(T entry)
+            {                
+                string row = entry.RowKey;
+                _map[row] = entry;                
+            }
+
+            public int Count
+            {
+                get { return _map.Count; }
+            }
+
+            public T[] ToArray()
+            {
+                return _map.Values.ToArray();
+            }
+
+            public void Clear()
+            {
+                _map.Clear();
+            }
+
+            // Get existing entity at this rowkey, or return null.
+            public T GetFromRowKey(string rowKey)
+            {
+                T entity;
+                _map.TryGetValue(rowKey, out entity);
+                return entity;
+            }
+
+            internal void Remove(string rowKey)
+            {
+                _map.Remove(rowKey);
+            }
+
+            public IEnumerator<T> GetEnumerator()
+            {
+                return _map.Values.GetEnumerator();
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return _map.Values.GetEnumerator();
+            }
+        }
     }    
 }

@@ -504,7 +504,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
                     messageText = reader.ReadToEnd();
                 }
                 
-                Console.WriteLine($"{messageText} : on Session Id {session.SessionId}");
+               // Console.WriteLine($"{messageText} : on Session Id {session.SessionId}");
             }
         }
 

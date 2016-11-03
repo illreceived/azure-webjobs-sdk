@@ -28,7 +28,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
 
         public static void ParallelQueueTrigger([QueueTrigger(TestQueueName)] int sleepTimeInSeconds)
         {
-            lock(_lock)
+            lock (_lock)
             {
                 _receivedMessages++;
                 _currentSimultaneouslyRunningFunctions++;
@@ -40,7 +40,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
 
             Thread.Sleep(sleepTimeInSeconds * 1000);
 
-            lock(_lock)
+            lock (_lock)
             {
                 _currentSimultaneouslyRunningFunctions--;
                 if (_receivedMessages == _numberOfQueueMessages)

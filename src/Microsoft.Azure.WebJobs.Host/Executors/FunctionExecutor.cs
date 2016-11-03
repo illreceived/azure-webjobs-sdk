@@ -24,16 +24,14 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
     {
         private readonly IFunctionInstanceLogger _functionInstanceLogger;
         private readonly IFunctionOutputLogger _functionOutputLogger;
-        private readonly IBackgroundExceptionDispatcher _backgroundExceptionDispatcher;
-        private readonly TimeSpan? _functionTimeout;
+        private readonly IWebJobsExceptionHandler _exceptionHandler;
         private readonly TraceWriter _trace;
         private readonly IAsyncCollector<FunctionInstanceLogEntry> _fastLogger;
 
         private HostOutputMessage _hostOutputMessage;
 
-        public FunctionExecutor(IFunctionInstanceLogger functionInstanceLogger, IFunctionOutputLogger functionOutputLogger, 
-            IBackgroundExceptionDispatcher backgroundExceptionDispatcher, TraceWriter trace, TimeSpan? functionTimeout,
-            IAsyncCollector<FunctionInstanceLogEntry> fastLogger = null)
+        public FunctionExecutor(IFunctionInstanceLogger functionInstanceLogger, IFunctionOutputLogger functionOutputLogger,
+            IWebJobsExceptionHandler exceptionHandler, TraceWriter trace, IAsyncCollector<FunctionInstanceLogEntry> fastLogger = null)
         {
             if (functionInstanceLogger == null)
             {
@@ -45,9 +43,9 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                 throw new ArgumentNullException("functionOutputLogger");
             }
 
-            if (backgroundExceptionDispatcher == null)
+            if (exceptionHandler == null)
             {
-                throw new ArgumentNullException("backgroundExceptionDispatcher");
+                throw new ArgumentNullException("exceptionHandler");
             }
 
             if (trace == null)
@@ -57,9 +55,8 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
 
             _functionInstanceLogger = functionInstanceLogger;
             _functionOutputLogger = functionOutputLogger;
-            _backgroundExceptionDispatcher = backgroundExceptionDispatcher;
+            _exceptionHandler = exceptionHandler;
             _trace = trace;
-            _functionTimeout = functionTimeout;
             _fastLogger = fastLogger;
         }
 
@@ -86,11 +83,6 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                 TriggerReason = functionStartedMessage.ReasonDetails,
                 StartTime = functionStartedMessage.StartTime.DateTime
             };
-            if (_fastLogger != null)
-            {
-                // Log started
-                await _fastLogger.AddAsync(fastItem);
-            }
 
             try
             {
@@ -131,13 +123,13 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             {
                 logCompletedCancellationToken = cancellationToken;
             }
-                        
+
             if (_fastLogger != null)
             {
                 // Log completed                
                 fastItem.EndTime = DateTime.UtcNow;
                 fastItem.Arguments = functionCompletedMessage.Arguments;
-                
+
                 if (exceptionInfo != null)
                 {
                     var ex = exceptionInfo.SourceException;
@@ -161,7 +153,32 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                 await _functionInstanceLogger.DeleteLogFunctionStartedAsync(functionStartedMessageId, cancellationToken);
             }
 
+            if (exceptionInfo != null)
+            {
+                await HandleExceptionAsync(functionInstance.FunctionDescriptor.Method, exceptionInfo, _exceptionHandler);
+            }
+
             return exceptionInfo != null ? new ExceptionDispatchInfoDelayedException(exceptionInfo) : null;
+        }
+
+        internal static async Task HandleExceptionAsync(MethodInfo method, ExceptionDispatchInfo exceptionInfo, IWebJobsExceptionHandler exceptionHandler)
+        {
+            if (exceptionInfo.SourceException == null)
+            {
+                return;
+            }
+
+            Exception exception = exceptionInfo.SourceException;
+
+            if (exception.IsTimeout())
+            {
+                TimeoutAttribute timeoutAttribute = TypeUtility.GetHierarchicalAttributeOrNull<TimeoutAttribute>(method);
+                await exceptionHandler.OnTimeoutExceptionAsync(exceptionInfo, timeoutAttribute.GracePeriod);
+            }
+            else if (exception.IsFatal())
+            {
+                await exceptionHandler.OnUnhandledExceptionAsync(exceptionInfo);
+            }
         }
 
         internal static TraceLevel GetFunctionTraceLevel(IFunctionInstance functionInstance)
@@ -192,7 +209,7 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                 outputDefinition = await _functionOutputLogger.CreateAsync(instance, cancellationToken);
                 outputLog = outputDefinition.CreateOutput();
                 functionOutputTextWriter = outputLog.Output;
-                updateOutputLogTimer = StartOutputTimer(outputLog.UpdateCommand, _backgroundExceptionDispatcher);
+                updateOutputLogTimer = StartOutputTimer(outputLog.UpdateCommand, _exceptionHandler);
             };
 
             if (functionTraceLevel >= TraceLevel.Info)
@@ -203,13 +220,14 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             try
             {
                 // Create a linked token source that will allow us to signal function cancellation
-                // (e.g. Based on TimeoutAttribute, etc.)
+                // (e.g. Based on TimeoutAttribute, etc.)                
                 CancellationTokenSource functionCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 using (functionCancellationTokenSource)
                 {
                     // We create a new composite trace writer that will also forward
-                    // output to the function output log (in addition to console, user TraceWriter, etc.).
-                    TraceWriter traceWriter = new CompositeTraceWriter(_trace, functionOutputTextWriter, functionTraceLevel);
+                    // output to the function output log (in addition to console, user TraceWriter, etc.).                    
+                    TraceWriter functionTraceWriter = new FunctionInstanceTraceWriter(instance, HostOutputMessage.HostInstanceId, _trace, functionTraceLevel);
+                    TraceWriter traceWriter = new CompositeTraceWriter(functionTraceWriter, functionOutputTextWriter, functionTraceLevel);
 
                     // Must bind before logging (bound invoke string is included in log message).
                     FunctionBindingContext functionContext = new FunctionBindingContext(instance.Id, functionCancellationTokenSource.Token, traceWriter);
@@ -224,6 +242,13 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                         if (functionTraceLevel >= TraceLevel.Info)
                         {
                             startedMessageId = await LogFunctionStartedAsync(message, outputDefinition, parameters, cancellationToken);
+                        }
+
+                        if (_fastLogger != null)
+                        {
+                            // Log started
+                            fastItem.Arguments = message.Arguments;
+                            await _fastLogger.AddAsync(fastItem);
                         }
 
                         try
@@ -246,7 +271,8 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                             startedMessageId = await LogFunctionStartedAsync(message, outputDefinition, parameters, cancellationToken);
                         }
 
-                        if (invocationException is OperationCanceledException)
+                        // In the event of cancellation or timeout, we use the original exception without additional logging.
+                        if (invocationException is OperationCanceledException || invocationException is FunctionTimeoutException)
                         {
                             exceptionInfo = ExceptionDispatchInfo.Capture(invocationException);
                         }
@@ -303,31 +329,30 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
         }
 
         /// <summary>
-        /// If the specified function instance requires a timeout (either via <see cref="TimeoutAttribute"/>
-        /// or because <see cref="JobHostConfiguration.FunctionTimeout"/> has been set, create and start the
-        /// timer.
+        /// If the specified function instance requires a timeout (via <see cref="TimeoutAttribute"/>),
+        /// create and start the timer.
         /// </summary>
         [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope")]
-        internal static System.Timers.Timer StartFunctionTimeout(IFunctionInstance instance, TimeSpan? globalTimeout, CancellationTokenSource cancellationTokenSource, TraceWriter trace)
+        internal static System.Timers.Timer StartFunctionTimeout(IFunctionInstance instance, TimeoutAttribute attribute, CancellationTokenSource cancellationTokenSource, TraceWriter trace)
         {
-            MethodInfo method = instance.FunctionDescriptor.Method;
-            if (!method.GetParameters().Any(p => p.ParameterType == typeof(CancellationToken)))
+            if (attribute == null)
             {
-                // function doesn't bind to the CancellationToken, so no point in setting
-                // up the cancellation timer
                 return null;
             }
 
-            // first see if there is a Timeout applied to the method or class
-            TimeSpan? timeout = globalTimeout;
-            TimeoutAttribute timeoutAttribute = TypeUtility.GetHierarchicalAttributeOrNull<TimeoutAttribute>(method);
-            if (timeoutAttribute != null)
-            {
-                timeout = timeoutAttribute.Timeout;
-            }
+            TimeSpan? timeout = attribute.Timeout;
 
             if (timeout != null)
             {
+                MethodInfo method = instance.FunctionDescriptor.Method;
+                bool usingCancellationToken = method.GetParameters().Any(p => p.ParameterType == typeof(CancellationToken));
+                if (!usingCancellationToken && !attribute.ThrowOnTimeout)
+                {
+                    // function doesn't bind to the CancellationToken and we will not throw if it fires,
+                    // so no point in setting up the cancellation timer
+                    return null;
+                }
+
                 // Create a Timer that will cancel the token source when it fires. We're using our
                 // own Timer (rather than CancellationToken.CancelAfter) so we can write a log entry
                 // before cancellation occurs.
@@ -335,10 +360,13 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                 {
                     AutoReset = false
                 };
-                timer.Elapsed += (o, e) => 
+
+                timer.Elapsed += (o, e) =>
                 {
-                    OnFunctionTimeout(timer, method, instance.Id, timeout.Value, trace, cancellationTokenSource);
+                    OnFunctionTimeout(timer, method, instance.Id, timeout.Value, attribute.TimeoutWhileDebugging, trace, cancellationTokenSource,
+                        () => Debugger.IsAttached);
                 };
+
                 timer.Start();
 
                 return timer;
@@ -347,22 +375,29 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             return null;
         }
 
-        internal static void OnFunctionTimeout(System.Timers.Timer timer, MethodInfo method, Guid instanceId, 
-            TimeSpan timeout, TraceWriter trace, CancellationTokenSource cancellationTokenSource)
+        internal static void OnFunctionTimeout(System.Timers.Timer timer, MethodInfo method, Guid instanceId, TimeSpan timeout, bool timeoutWhileDebugging,
+            TraceWriter trace, CancellationTokenSource cancellationTokenSource, Func<bool> isDebuggerAttached)
         {
             timer.Stop();
 
+            bool shouldTimeout = timeoutWhileDebugging || !isDebuggerAttached();
             string message = string.Format(CultureInfo.InvariantCulture,
-                "Timeout value of {0} exceeded by function '{1}.{2}' (Id: '{3}'). Initiating cancellation.",
-                timeout.ToString(), method.DeclaringType.Name, method.Name, instanceId);
+                "Timeout value of {0} exceeded by function '{1}.{2}' (Id: '{3}'). {4}",
+                timeout.ToString(), method.DeclaringType.Name, method.Name, instanceId,
+                shouldTimeout ? "Initiating cancellation." : "Function will not be cancelled while debugging.");
+
             trace.Error(message, null, TraceSource.Execution);
 
             trace.Flush();
 
-            // only cancel the token AFTER we've logged our error, since
-            // the Dashboard function output is also tied to this cancellation
-            // token and we don't want to dispose the logger prematurely.
-            cancellationTokenSource.Cancel();
+            // Only cancel the token if not debugging
+            if (shouldTimeout)
+            {
+                // only cancel the token AFTER we've logged our error, since
+                // the Dashboard function output is also tied to this cancellation
+                // token and we don't want to dispose the logger prematurely.
+                cancellationTokenSource.Cancel();
+            }
         }
 
         private Task<string> LogFunctionStartedAsync(FunctionStartedMessage message,
@@ -380,7 +415,7 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
         }
 
         [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope")]
-        private static ITaskSeriesTimer StartOutputTimer(IRecurrentCommand updateCommand, IBackgroundExceptionDispatcher backgroundExceptionDispatcher)
+        private static ITaskSeriesTimer StartOutputTimer(IRecurrentCommand updateCommand, IWebJobsExceptionHandler exceptionHandler)
         {
             if (updateCommand == null)
             {
@@ -389,14 +424,14 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
 
             TimeSpan initialDelay = FunctionOutputIntervals.InitialDelay;
             TimeSpan refreshRate = FunctionOutputIntervals.RefreshRate;
-            ITaskSeriesTimer timer = FixedDelayStrategy.CreateTimer(updateCommand, initialDelay, refreshRate, backgroundExceptionDispatcher);
+            ITaskSeriesTimer timer = FixedDelayStrategy.CreateTimer(updateCommand, initialDelay, refreshRate, exceptionHandler);
             timer.Start();
 
             return timer;
         }
 
         [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope")]
-        private static ITaskSeriesTimer StartParameterLogTimer(IRecurrentCommand updateCommand, IBackgroundExceptionDispatcher backgroundExceptionDispatcher)
+        private static ITaskSeriesTimer StartParameterLogTimer(IRecurrentCommand updateCommand, IWebJobsExceptionHandler exceptionHandler)
         {
             if (updateCommand == null)
             {
@@ -405,7 +440,7 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
 
             TimeSpan initialDelay = FunctionParameterLogIntervals.InitialDelay;
             TimeSpan refreshRate = FunctionParameterLogIntervals.RefreshRate;
-            ITaskSeriesTimer timer = FixedDelayStrategy.CreateTimer(updateCommand, initialDelay, refreshRate, backgroundExceptionDispatcher);
+            ITaskSeriesTimer timer = FixedDelayStrategy.CreateTimer(updateCommand, initialDelay, refreshRate, exceptionHandler);
             timer.Start();
 
             return timer;
@@ -427,13 +462,13 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             {
                 parameterWatchers = CreateParameterWatchers(parameters);
                 IRecurrentCommand updateParameterLogCommand = outputDefinition.CreateParameterLogUpdateCommand(parameterWatchers, trace);
-                updateParameterLogTimer = StartParameterLogTimer(updateParameterLogCommand, _backgroundExceptionDispatcher);
+                updateParameterLogTimer = StartParameterLogTimer(updateParameterLogCommand, _exceptionHandler);
             }
-            
+
             try
             {
-                await ExecuteWithWatchersAsync(instance, parameters, _functionTimeout, trace, functionCancellationTokenSource);
-                    
+                await ExecuteWithWatchersAsync(instance, parameters, trace, functionCancellationTokenSource);
+
                 if (updateParameterLogTimer != null)
                 {
                     // Stop the watches after calling IValueBinder.SetValue (it may do things that should show up in
@@ -475,7 +510,6 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
 
         internal static async Task ExecuteWithWatchersAsync(IFunctionInstance instance,
             IReadOnlyDictionary<string, IValueProvider> parameters,
-            TimeSpan? globalFunctionTimeout,
             TraceWriter traceWriter,
             CancellationTokenSource functionCancellationTokenSource)
         {
@@ -499,17 +533,26 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
                 await singleton.AcquireAsync(functionCancellationTokenSource.Token);
             }
 
-            var timer = StartFunctionTimeout(instance, globalFunctionTimeout, functionCancellationTokenSource, traceWriter);
-            try
+            // Create a source specifically for timeouts
+            using (CancellationTokenSource timeoutTokenSource = new CancellationTokenSource())
             {
-                await invoker.InvokeAsync(invokeParameters);
-            }
-            finally
-            {
-                if (timer != null)
+                MethodInfo method = instance.FunctionDescriptor.Method;
+                TimeoutAttribute timeoutAttribute = TypeUtility.GetHierarchicalAttributeOrNull<TimeoutAttribute>(method);
+                bool throwOnTimeout = timeoutAttribute == null ? false : timeoutAttribute.ThrowOnTimeout;
+                var timer = StartFunctionTimeout(instance, timeoutAttribute, timeoutTokenSource, traceWriter);
+                TimeSpan timerInterval = timer == null ? TimeSpan.MinValue : TimeSpan.FromMilliseconds(timer.Interval);
+                try
                 {
-                    timer.Stop();
-                    timer.Dispose();
+                    await InvokeAsync(invoker, invokeParameters, timeoutTokenSource, functionCancellationTokenSource,
+                        throwOnTimeout, timerInterval, instance);
+                }
+                finally
+                {
+                    if (timer != null)
+                    {
+                        timer.Stop();
+                        timer.Dispose();
+                    }
                 }
             }
 
@@ -549,6 +592,73 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             {
                 await singleton.ReleaseAsync(functionCancellationTokenSource.Token);
             }
+        }
+
+        internal static async Task InvokeAsync(IFunctionInvoker invoker, object[] invokeParameters, CancellationTokenSource timeoutTokenSource,
+            CancellationTokenSource functionCancellationTokenSource, bool throwOnTimeout, TimeSpan timerInterval, IFunctionInstance instance)
+        {
+            // There are three ways the function can complete:
+            //   1. The invokeTask itself completes first.
+            //   2. A cancellation is requested (by host.Stop(), for example).
+            //      a. Continue waiting for the invokeTask to complete. Either #1 or #3 will occur.
+            //   3. A timeout fires.
+            //      a. If throwOnTimeout, we throw the FunctionTimeoutException.
+            //      b. If !throwOnTimeout, wait for the task to complete.
+
+            // Start the invokeTask.
+            Task invokeTask = invoker.InvokeAsync(invokeParameters);
+
+            // Combine #1 and #2 with a timeout task (handled by this method).
+            // functionCancellationTokenSource.Token is passed to each function that requests it, so we need to call Cancel() on it
+            // if there is a timeout.
+            bool isTimeout = await TryHandleTimeoutAsync(invokeTask, functionCancellationTokenSource.Token, throwOnTimeout, timeoutTokenSource.Token,
+                timerInterval, instance, () => functionCancellationTokenSource.Cancel());
+
+            // #2 occurred. If we're going to throwOnTimeout, watch for a timeout while we wait for invokeTask to complete.
+            if (throwOnTimeout && !isTimeout && functionCancellationTokenSource.IsCancellationRequested)
+            {
+                await TryHandleTimeoutAsync(invokeTask, CancellationToken.None, throwOnTimeout, timeoutTokenSource.Token, timerInterval, instance, null);
+            }
+
+            await invokeTask;
+        }
+
+        /// <summary>
+        /// Executes a timeout pattern. Throws an exception if the timeoutToken is canceled before taskToTimeout completes and throwOnTimeout is true.
+        /// </summary>
+        /// <param name="invokeTask">The task to run.</param>
+        /// <param name="shutdownToken">A token that is canceled if a host shutdown is requested.</param>
+        /// <param name="throwOnTimeout">True if the method should throw an OperationCanceledException if it times out.</param>
+        /// <param name="timeoutToken">The token to watch. If it is canceled, taskToTimeout has timed out.</param>
+        /// <param name="onTimeout">A callback to be executed if a timeout occurs.</param>
+        /// <param name="timeoutInterval">The timeout period. Used only in the exception message.</param>
+        /// <param name="instance">The function instance. Used only in the exceptionMessage</param>
+        /// <returns>True if a timeout occurred. Otherwise, false.</returns>
+        private static async Task<bool> TryHandleTimeoutAsync(Task invokeTask, CancellationToken shutdownToken, bool throwOnTimeout, CancellationToken timeoutToken,
+            TimeSpan timeoutInterval, IFunctionInstance instance, Action onTimeout)
+        {
+            Task timeoutTask = Task.Delay(-1, timeoutToken);
+            Task shutdownTask = Task.Delay(-1, shutdownToken);
+            Task completedTask = await Task.WhenAny(invokeTask, shutdownTask, timeoutTask);
+
+            if (completedTask == timeoutTask)
+            {
+                if (onTimeout != null)
+                {
+                    onTimeout();
+                }
+
+                if (throwOnTimeout)
+                {
+                    // If we need to throw, throw now. This will bubble up and eventually bring down the host after
+                    // a short grace period for the function to handle the cancellation.
+                    string errorMessage = string.Format("Timeout value of {0} was exceeded by function: {1}", timeoutInterval, instance.FunctionDescriptor.ShortName);
+                    throw new FunctionTimeoutException(errorMessage, instance.Id, instance.FunctionDescriptor.ShortName, timeoutInterval, invokeTask, null);
+                }
+
+                return true;
+            }
+            return false;
         }
 
         private static bool TryGetSingletonLock(IReadOnlyDictionary<string, IValueProvider> parameters, out SingletonLock singleton)
@@ -711,12 +821,12 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             {
             }
 
-            public static ValueBinderStepOrderComparer Instance 
-            { 
-                get 
-                { 
-                    return Singleton; 
-                } 
+            public static ValueBinderStepOrderComparer Instance
+            {
+                get
+                {
+                    return Singleton;
+                }
             }
 
             public int Compare(IValueProvider x, IValueProvider y)

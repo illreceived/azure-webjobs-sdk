@@ -10,10 +10,10 @@ namespace Microsoft.Azure.WebJobs.Logging
     // Describes available function names. 
     // This is useful to quickly query available functions so we can use the names in other point queries. 
     // 1 entity per function definition. 
-    internal class FunctionDefinitionEntity : TableEntity, IFunctionDefinition
+    internal class FunctionDefinitionEntity : TableEntity, IFunctionDefinition, IEntityWithEpoch
     {
-        const string PartitionKeyFormat = TableScheme.FuncDefIndexPK;
-        const string RowKeyFormat = "{0}"; // functionName
+        const string PartitionKeyPrefix = TableScheme.FuncDefIndexPK;
+        const string RowKeyFormat = "{0}"; // FunctionId
 
         DateTime IFunctionDefinition.LastModified
         {
@@ -26,18 +26,44 @@ namespace Microsoft.Azure.WebJobs.Logging
         string IFunctionDefinition.Name
         {
             get
-            {
-                return this.RowKey;
+            {                
+                return OriginalName ?? this.RowKey;
             }
         }
 
-        public static FunctionDefinitionEntity New(string functionName)
+        // Host-aware name. Used in other APIs. 
+        // This value is already escaped. 
+        FunctionId IFunctionDefinition.FunctionId
+        {
+            get
+            {
+                return FunctionId.Parse(this.RowKey);
+            }
+        }
+        
+
+        public DateTime GetEpoch()
+        {
+            return TimeBucket.CommonEpoch; // Definitions span all epocs 
+        }
+
+        // Store the orginal name since functions are case-insensitive, but rowkey must be normalized (table is case-sensitive) 
+        // and functions must be case-preserving. 
+        public string OriginalName { get; set; }
+
+        public static FunctionDefinitionEntity New(FunctionId functionId, string functionName)
         {
             return new FunctionDefinitionEntity
             {
-                PartitionKey = PartitionKeyFormat,
-                RowKey = string.Format(CultureInfo.InvariantCulture, RowKeyFormat, TableScheme.NormalizeFunctionName(functionName))
+                PartitionKey = PartitionKeyPrefix,
+                RowKey = functionId.ToString(),
+                OriginalName = functionName                
             };
+        }
+
+        public override string ToString()
+        {
+            return this.OriginalName;
         }
     }
 }

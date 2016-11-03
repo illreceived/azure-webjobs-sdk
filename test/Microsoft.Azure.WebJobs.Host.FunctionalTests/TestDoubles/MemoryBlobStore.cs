@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.Azure.WebJobs.Host.Storage.Blob;
+using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Shared.Protocol;
 
@@ -52,8 +53,7 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
             return _items[containerName].FetchAttributes(blobName);
         }
 
-        public IStorageBlob GetBlobReferenceFromServer(IStorageBlobContainer parent, string containerName,
-            string blobName)
+        public IStorageBlob GetBlobReferenceFromServer(IStorageBlobContainer parent, string containerName, string blobName)
         {
             if (!_items.ContainsKey(containerName))
             {
@@ -113,7 +113,7 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
             if (currentToken != null)
             {
                 var edgeMarker = results.FindIndex(r => r.Name == currentToken.NextMarker);
-                
+
                 // if it is not the last element then filter all before the marker including the marker
                 if (!(edgeMarker == results.Count - 1))
                 {
@@ -161,6 +161,12 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
             IDictionary<string, string> metadata)
         {
             return _items[containerName].OpenWritePage(blobName, size, metadata);
+        }
+
+        public CloudBlobStream OpenWriteAppend(string containerName, string blobName,
+            IDictionary<string, string> metadata)
+        {
+            return _items[containerName].OpenWriteAppend(blobName, metadata);
         }
 
         public void ReleaseLease(string containerName, string blobName, string leaseId)
@@ -254,6 +260,15 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
 
             public string AcquireLease(string blobName, TimeSpan? leaseTime)
             {
+                if (!Exists(blobName))
+                {
+                    RequestResult result = new RequestResult
+                    {
+                        HttpStatusCode = 404
+                    };
+                    throw new StorageException(result, "Blob does not exist", null);
+                }
+
                 return _items[blobName].AcquireLease(leaseTime);
             }
 
@@ -272,8 +287,7 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
                 return _items[blobName].FetchAttributes();
             }
 
-            public IStorageBlob GetBlobReferenceFromServer(MemoryBlobStore store, IStorageBlobContainer parent,
-                string blobName)
+            public IStorageBlob GetBlobReferenceFromServer(MemoryBlobStore store, IStorageBlobContainer parent, string blobName)
             {
                 if (!_items.ContainsKey(blobName))
                 {
@@ -282,13 +296,16 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
 
                 Blob blob = _items[blobName];
 
-                if (blob.BlobType == StorageBlobType.BlockBlob)
+                switch (blob.BlobType)
                 {
-                    return new FakeStorageBlockBlob(store, blobName, parent);
-                }
-                else
-                {
-                    return new FakeStoragePageBlob(store, blobName, parent);
+                    case StorageBlobType.BlockBlob:
+                        return new FakeStorageBlockBlob(store, blobName, parent);
+                    case StorageBlobType.PageBlob:
+                        return new FakeStoragePageBlob(store, blobName, parent);
+                    case StorageBlobType.AppendBlob:
+                        return new FakeStorageAppendBlob(store, blobName, parent);
+                    default:
+                        throw new InvalidOperationException(string.Format("Type '{0}' is not supported.", blob.BlobType));
                 }
             }
 
@@ -332,6 +349,11 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
 
             public Stream OpenRead(string blobName)
             {
+                if (!_items.ContainsKey(blobName))
+                {
+                    throw StorageExceptionFactory.Create(404, "BlobNotFound");
+                }
+
                 return new MemoryStream(_items[blobName].Contents, writable: false);
             }
 
@@ -365,6 +387,17 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
 
                 return new MemoryCloudPageBlobStream((bytes) => _items[blobName] =
                     new Blob(StorageBlobType.PageBlob, bytes, metadata, null, null));
+            }
+
+            public CloudBlobStream OpenWriteAppend(string blobName, IDictionary<string, string> metadata)
+            {
+                if (_items.ContainsKey(blobName))
+                {
+                    _items[blobName].ThrowIfLeased();
+                }
+
+                return new MemoryCloudAppendBlobStream((bytes) => _items[blobName] =
+                    new Blob(StorageBlobType.AppendBlob, bytes, metadata, null, null));
             }
 
             public void ReleaseLease(string blobName, string leaseId)
@@ -495,7 +528,11 @@ namespace Microsoft.Azure.WebJobs.Host.FunctionalTests.TestDoubles
                 {
                     if (!LeaseExpires.HasValue || LeaseExpires.Value > DateTime.UtcNow)
                     {
-                        throw new InvalidOperationException();
+                        RequestResult result = new RequestResult
+                        {
+                            HttpStatusCode = 409
+                        };
+                        throw new StorageException(result, "Blob is leased", null);
                     }
                 }
             }

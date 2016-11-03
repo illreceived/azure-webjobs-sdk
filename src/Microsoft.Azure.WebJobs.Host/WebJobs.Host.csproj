@@ -28,6 +28,10 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Debug\Microsoft.Azure.WebJobs.Host.xml</DocumentationFile>
+    <LangVersion>5</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RunCodeAnalysis>true</RunCodeAnalysis>
+    <CodeAnalysisIgnoreGeneratedCode>true</CodeAnalysisIgnoreGeneratedCode>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -37,6 +41,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Release\Microsoft.Azure.WebJobs.Host.xml</DocumentationFile>
+    <LangVersion>5</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>true</SignAssembly>
@@ -65,15 +70,15 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.WindowsAzure.Configuration, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.WindowsAzure.ConfigurationManager.3.2.1\lib\net40\Microsoft.WindowsAzure.Configuration.dll</HintPath>
+      <HintPath>..\..\packages\Microsoft.WindowsAzure.ConfigurationManager.3.2.3\lib\net40\Microsoft.WindowsAzure.Configuration.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Microsoft.WindowsAzure.Storage, Version=7.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\WindowsAzure.Storage.7.0.0\lib\net40\Microsoft.WindowsAzure.Storage.dll</HintPath>
+    <Reference Include="Microsoft.WindowsAzure.Storage, Version=7.2.1.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\WindowsAzure.Storage.7.2.1\lib\net40\Microsoft.WindowsAzure.Storage.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Newtonsoft.Json, Version=8.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Newtonsoft.Json.8.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
+    <Reference Include="Newtonsoft.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Newtonsoft.Json.9.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />
@@ -260,6 +265,9 @@
     <Compile Include="..\Microsoft.Azure.WebJobs.Protocols\WriteBlobParameterLog.cs">
       <Link>Protocols\WriteBlobParameterLog.cs</Link>
     </Compile>
+    <Compile Include="..\Microsoft.Azure.WebJobs.Storage\Blob\IStorageAppendBlob.cs">
+      <Link>Storage\Blob\IStorageAppendBlob.cs</Link>
+    </Compile>
     <Compile Include="..\Microsoft.Azure.WebJobs.Storage\Blob\IStorageBlob.cs">
       <Link>Storage\Blob\IStorageBlob.cs</Link>
     </Compile>
@@ -286,6 +294,9 @@
     </Compile>
     <Compile Include="..\Microsoft.Azure.WebJobs.Storage\Blob\IStoragePageBlob.cs">
       <Link>Storage\Blob\IStoragePageBlob.cs</Link>
+    </Compile>
+    <Compile Include="..\Microsoft.Azure.WebJobs.Storage\Blob\StorageAppendBlob.cs">
+      <Link>Storage\Blob\StorageAppendBlob.cs</Link>
     </Compile>
     <Compile Include="..\Microsoft.Azure.WebJobs.Storage\Blob\StorageBlobClient.cs">
       <Link>Storage\Blob\StorageBlobClient.cs</Link>
@@ -375,10 +386,19 @@
     <Compile Include="Bindings\BindingProviders\ItemBindingProvider.cs" />
     <Compile Include="Bindings\BindingProviders\ValidatingWrapperBindingProvider.cs" />
     <Compile Include="Bindings\DefaultAttributeInvokerDescriptor.cs" />
+    <Compile Include="Bindings\FuncArgumentBuilder.cs" />
     <Compile Include="Bindings\IArgumentBindingProvider.cs" />
+    <Compile Include="Bindings\Runtime\Binder.cs" />
+    <Compile Include="Blobs\Listeners\IBlobScanInfoManager.cs" />
+    <Compile Include="Blobs\Listeners\StorageBlobScanInfoManager.cs" />
+    <Compile Include="Blobs\StorageBlobToCloudAppendBlobConverter.cs" />
+    <Compile Include="DefaultNameResolver.cs" />
+    <Compile Include="Executors\FunctionInstanceTraceWriter.cs" />
+    <Compile Include="Extensions\ExceptionExtensions.cs" />
+    <Compile Include="FuncConverter.cs" />
+    <Compile Include="FunctionTimeoutException.cs" />
+    <Compile Include="Loggers\TraceEventExtensions.cs" />
     <Compile Include="Queues\Bindings\QueueBindingProvider.cs" />
-    <Compile Include="Bindings\Runtime\IBinderEx.cs" />
-    <Compile Include="Bindings\Runtime\RuntimeBindingContext.cs" />
     <Compile Include="Bindings\TraceWriter\TextWriterTraceAdapter.cs" />
     <Compile Include="Bindings\TraceWriter\TraceWriterBinding.cs" />
     <Compile Include="Bindings\TraceWriter\TraceWriterBindingProvider.cs" />
@@ -408,6 +428,7 @@
     <Compile Include="Bindings\AsyncCollector\OutValueProvider.cs" />
     <Compile Include="Bindings\AsyncCollector\SyncAsyncCollectorAdapter.cs" />
     <Compile Include="Triggers\TriggerArgumentBinding\ArraryTriggerArgumentBinding.cs" />
+    <Compile Include="Triggers\TriggerArgumentBinding\CustomTriggerArgumentBinding.cs" />
     <Compile Include="Triggers\TriggerArgumentBinding\PocoTriggerArgumentBinding.cs" />
     <Compile Include="Triggers\TriggerArgumentBinding\SimpleTriggerArgumentBinding.cs" />
     <Compile Include="Triggers\TriggerArgumentBinding\StringTriggerArgumentBinding.cs" />
@@ -707,8 +728,8 @@
     <Compile Include="Tables\TToEntityPropertyConverterFactory.cs" />
     <Compile Include="Timers\FixedDelayStrategy.cs" />
     <Compile Include="Timers\RandomizedExponentialBackoffStrategy.cs" />
-    <Compile Include="Timers\BackgroundExceptionDispatcher.cs" />
-    <Compile Include="Timers\IBackgroundExceptionDispatcher.cs" />
+    <Compile Include="Timers\WebJobsExceptionHandler.cs" />
+    <Compile Include="Timers\IWebJobsExceptionHandler.cs" />
     <Compile Include="Timers\IDelayStrategy.cs" />
     <Compile Include="Timers\IRecurrentCommand.cs" />
     <Compile Include="Timers\ITaskSeriesCommand.cs" />
@@ -872,7 +893,6 @@
     <Compile Include="Listeners\ITriggerExecutor.cs" />
     <Compile Include="Triggers\TriggerBindingProviderContext.cs" />
     <Compile Include="Triggers\TriggerData.cs" />
-    <Compile Include="Indexers\DefaultNameResolver.cs" />
     <Compile Include="NameResolverExtensions.cs" />
     <Compile Include="FunctionInvocationException.cs" />
     <Compile Include="TypeUtility.cs" />
@@ -950,9 +970,9 @@
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Enable NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
     <Error Condition="!Exists('..\..\packages\xunit.runner.visualstudio.2.1.0\build\net20\xunit.runner.visualstudio.props')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\xunit.runner.visualstudio.2.1.0\build\net20\xunit.runner.visualstudio.props'))" />
-    <Error Condition="!Exists('..\..\packages\StyleCop.MSBuild.4.7.53.0\build\StyleCop.MSBuild.Targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\StyleCop.MSBuild.4.7.53.0\build\StyleCop.MSBuild.Targets'))" />
+    <Error Condition="!Exists('..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets'))" />
   </Target>
-  <Import Project="..\..\packages\StyleCop.MSBuild.4.7.53.0\build\StyleCop.MSBuild.Targets" Condition="Exists('..\..\packages\StyleCop.MSBuild.4.7.53.0\build\StyleCop.MSBuild.Targets')" />
+  <Import Project="..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets" Condition="Exists('..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets')" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

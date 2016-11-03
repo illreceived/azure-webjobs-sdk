@@ -68,11 +68,14 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Listeners
             string blobName = message.BlobName;
 
             IStorageBlob blob;
-            
+
             switch (message.BlobType)
             {
                 case StorageBlobType.PageBlob:
                     blob = container.GetPageBlobReference(blobName);
+                    break;
+                case StorageBlobType.AppendBlob:
+                    blob = container.GetAppendBlobReference(blobName);
                     break;
                 case StorageBlobType.BlockBlob:
                 default:
@@ -96,8 +99,8 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Listeners
                 return successResult;
             }
 
-            //// If the blob still exists and its ETag is still valid, execute.
-            //// Note: it's possible the blob could change/be deleted between now and when the function executes.
+            // If the blob still exists and its ETag is still valid, execute.
+            // Note: it's possible the blob could change/be deleted between now and when the function executes.
             Guid? parentId = await _causalityReader.GetWriterAsync(blob, cancellationToken);
             TriggeredFunctionData input = new TriggeredFunctionData
             {

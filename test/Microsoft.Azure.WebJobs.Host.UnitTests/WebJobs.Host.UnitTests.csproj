@@ -24,6 +24,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>5</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -33,6 +34,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>5</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>true</SignAssembly>
@@ -44,6 +46,10 @@
     <DelaySign>true</DelaySign>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Castle.Core, Version=3.3.0.0, Culture=neutral, PublicKeyToken=407dd0808d44fbdc, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Castle.Core.3.3.3\lib\net45\Castle.Core.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="Microsoft.Azure.KeyVault.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Microsoft.Azure.KeyVault.Core.1.0.0\lib\net40\Microsoft.Azure.KeyVault.Core.dll</HintPath>
       <Private>True</Private>
@@ -65,19 +71,19 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.WindowsAzure.Configuration, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.WindowsAzure.ConfigurationManager.3.2.1\lib\net40\Microsoft.WindowsAzure.Configuration.dll</HintPath>
+      <HintPath>..\..\packages\Microsoft.WindowsAzure.ConfigurationManager.3.2.3\lib\net40\Microsoft.WindowsAzure.Configuration.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Microsoft.WindowsAzure.Storage, Version=7.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\WindowsAzure.Storage.7.0.0\lib\net40\Microsoft.WindowsAzure.Storage.dll</HintPath>
+    <Reference Include="Microsoft.WindowsAzure.Storage, Version=7.2.1.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\WindowsAzure.Storage.7.2.1\lib\net40\Microsoft.WindowsAzure.Storage.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Moq, Version=4.2.1510.2205, Culture=neutral, PublicKeyToken=69f491c39445e920, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Moq.4.2.1510.2205\lib\net40\Moq.dll</HintPath>
+    <Reference Include="Moq, Version=4.5.23.0, Culture=neutral, PublicKeyToken=69f491c39445e920, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Moq.4.5.23\lib\net45\Moq.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Newtonsoft.Json, Version=8.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Newtonsoft.Json.8.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
+    <Reference Include="Newtonsoft.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Newtonsoft.Json.9.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />
@@ -163,6 +169,7 @@
     <Compile Include="ConverterManagerTests.cs" />
     <Compile Include="DefaultExtensionRegistryTests.cs" />
     <Compile Include="EmptyFunctionIndexProvider.cs" />
+    <Compile Include="Executors\DefaultStorageCredentialsValidatorTests.cs" />
     <Compile Include="Executors\DefaultJobActivatorTests.cs" />
     <Compile Include="Executors\DefaultStorageAccountProviderTests.cs" />
     <Compile Include="Executors\DynamicHostIdProviderTests.cs" />
@@ -182,13 +189,13 @@
     <Compile Include="FakeQueue\FakeQueueTriggerBindingProvider.cs" />
     <Compile Include="FakeQueue\FakeQueueTriggerBindingStrategy.cs" />
     <Compile Include="FunctionIndexerFactory.cs" />
+    <Compile Include="FunctionInstanceTraceWriterTests.cs" />
     <Compile Include="JobHostContextTests.cs" />
     <Compile Include="JobHostQueuesConfigurationTests.cs" />
     <Compile Include="Listeners\HostListenerFactoryTests.cs" />
     <Compile Include="Loggers\TraceWriterFunctionInstanceLoggerTests.cs" />
     <Compile Include="NullExtensionTypeLocator.cs" />
     <Compile Include="Protocols\FunctionStartedMessageExtensionsTests.cs" />
-    <Compile Include="Protocols\FunctionStartedMessageTests.cs" />
     <Compile Include="Protocols\ProtocolSerializationTests.cs" />
     <Compile Include="Queues\QueueListenerTests.cs" />
     <Compile Include="Queues\QueueProcessorFactoryContextTests.cs" />
@@ -227,6 +234,7 @@
     <Compile Include="TestJobHostContextFactory.cs" />
     <Compile Include="TestJobHostConfiguration.cs" />
     <Compile Include="Timers\RandomizedExponentialBackoffStrategyTests.cs" />
+    <Compile Include="TypeUtilityTests.cs" />
     <Compile Include="WebJobsShutdownWatcherTests.cs" />
     <Compile Include="Blobs\BlobPathSourceTests.cs" />
     <Compile Include="Blobs\BlobPathTests.cs" />
@@ -256,6 +264,14 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Microsoft.Azure.WebJobs.Logging\WebJobs.Logging.csproj">
+      <Project>{b5a04006-ab0c-4800-ae4c-080d31867de3}</Project>
+      <Name>WebJobs.Logging</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\Microsoft.Azure.WebJobs.ServiceBus\WebJobs.ServiceBus.csproj">
+      <Project>{7B396753-F2D9-4655-929B-BE7E665A4C7E}</Project>
+      <Name>WebJobs.ServiceBus</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Microsoft.Azure.WebJobs.Host.TestCommon\WebJobs.Host.TestCommon.csproj">
       <Project>{4A832C21-66EA-4DE4-8124-F27F8900CBA9}</Project>
       <Name>WebJobs.Host.TestCommon</Name>

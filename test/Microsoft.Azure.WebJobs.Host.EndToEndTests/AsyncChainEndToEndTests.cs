@@ -7,12 +7,15 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host.Executors;
+using Microsoft.Azure.WebJobs.Host.Protocols;
 using Microsoft.Azure.WebJobs.Host.Queues;
 using Microsoft.Azure.WebJobs.Host.TestCommon;
+using Microsoft.Azure.WebJobs.Host.Timers;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Microsoft.WindowsAzure.Storage.Queue;
@@ -46,9 +49,11 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
         private static TimeSpan _timeoutJobDelay;
 
         private readonly CloudQueue _testQueue;
+        private readonly TestFixture _fixture;
 
         public AsyncChainEndToEndTests(TestFixture fixture)
         {
+            _fixture = fixture;
             _resolver = new RandomNameResolver();
             _hostConfig = new JobHostConfiguration()
             {
@@ -95,8 +100,11 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
                     "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.DisabledJob",
                     "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.QueueTrigger_TraceLevelOverride",
                     "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.TimeoutJob",
+                    "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.TimeoutJob_Throw",
+                    "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.TimeoutJob_Throw_NoToken",
                     "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.BlobToBlobAsync",
                     "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.ReadResultBlob",
+                    "Microsoft.Azure.WebJobs.Host.EndToEndTests.AsyncChainEndToEndTests.RandGuidOutput",
                     "Function 'AsyncChainEndToEndTests.DisabledJob' is disabled",
                     "Job host started",
                     "Executing: 'AsyncChainEndToEndTests.WriteStartDataMessageToQueue' - Reason: 'This function was programmatically called via the host APIs.'",
@@ -109,7 +117,10 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
                     "Executed: 'AsyncChainEndToEndTests.BlobToBlobAsync' (Succeeded)",
                     "Job host stopped",
                     "Executing: 'AsyncChainEndToEndTests.ReadResultBlob' - Reason: 'This function was programmatically called via the host APIs.'",
-                    "Executed: 'AsyncChainEndToEndTests.ReadResultBlob' (Succeeded)"
+                    "Executed: 'AsyncChainEndToEndTests.ReadResultBlob' (Succeeded)",
+                    "User TraceWriter log",
+                    "Another User TextWriter log",
+                    "User TextWriter log (TestParam)"
                 }.OrderBy(p => p).ToArray();
 
                 bool hasError = consoleOutputLines.Any(p => p.Contains("Function had errors"));
@@ -143,12 +154,12 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
                 Assert.True(queueProcessorFactory.CustomQueueProcessors.Sum(p => p.BeginProcessingCount) >= 2);
                 Assert.True(queueProcessorFactory.CustomQueueProcessors.Sum(p => p.CompleteProcessingCount) >= 2);
 
-                Assert.Equal(13, storageClientFactory.TotalBlobClientCount);
-                Assert.Equal(8, storageClientFactory.TotalQueueClientCount);
+                Assert.Equal(17, storageClientFactory.TotalBlobClientCount);
+                Assert.Equal(11, storageClientFactory.TotalQueueClientCount);
                 Assert.Equal(0, storageClientFactory.TotalTableClientCount);
 
-                Assert.Equal(5, storageClientFactory.ParameterBlobClientCount);
-                Assert.Equal(6, storageClientFactory.ParameterQueueClientCount);
+                Assert.Equal(6, storageClientFactory.ParameterBlobClientCount);
+                Assert.Equal(7, storageClientFactory.ParameterQueueClientCount);
                 Assert.Equal(0, storageClientFactory.ParameterTableClientCount);
             }
         }
@@ -159,7 +170,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             TextWriter hold = Console.Out;
             StringWriter consoleOutput = new StringWriter();
             Console.SetOut(consoleOutput);
-            
+
             using (_functionCompletedEvent = new ManualResetEvent(initialState: false))
             {
                 TestTraceWriter trace = new TestTraceWriter(TraceLevel.Verbose);
@@ -179,19 +190,53 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
                 bool hasError = string.Join(Environment.NewLine, trace.Traces.Where(p => p.Message.Contains("Error"))).Any();
                 if (!hasError)
                 {
-                    Assert.Equal(15, trace.Traces.Count);
+                    Assert.Equal(18, trace.Traces.Count);
                     Assert.NotNull(trace.Traces.SingleOrDefault(p => p.Message.Contains("User TraceWriter log")));
                     Assert.NotNull(trace.Traces.SingleOrDefault(p => p.Message.Contains("User TextWriter log (TestParam)")));
                     Assert.NotNull(trace.Traces.SingleOrDefault(p => p.Message.Contains("Another User TextWriter log")));
+                    ValidateTraceProperties(trace);
 
                     string[] consoleOutputLines = consoleOutput.ToString().Trim().Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
-                    Assert.Equal(21, consoleOutputLines.Length);
-                    Assert.Null(consoleOutputLines.SingleOrDefault(p => p.Contains("User TraceWriter log")));
-                    Assert.Null(consoleOutputLines.SingleOrDefault(p => p.Contains("User TextWriter log (TestParam)")));
+                    Assert.Equal(27, consoleOutputLines.Length);
+                    Assert.NotNull(consoleOutputLines.SingleOrDefault(p => p.Contains("User TraceWriter log")));
+                    Assert.NotNull(consoleOutputLines.SingleOrDefault(p => p.Contains("User TextWriter log (TestParam)")));
+                    Assert.NotNull(consoleOutputLines.SingleOrDefault(p => p.Contains("Another User TextWriter log")));
                 }
             }
 
             Console.SetOut(hold);
+        }
+
+        private void ValidateTraceProperties(TestTraceWriter trace)
+        {
+            foreach (var traceEvent in trace.Traces)
+            {
+                var message = traceEvent.Message;
+                var startedOrEndedMessage = message.StartsWith("Executing: ") || message.StartsWith("Executed: ");
+                var userMessage = message.Contains("User TextWriter") || message.Contains("User TraceWriter");
+
+                if (startedOrEndedMessage || userMessage)
+                {
+                    Assert.Equal(3, traceEvent.Properties.Count);
+
+                    Assert.IsType<Guid>(traceEvent.Properties["MS_HostInstanceId"]);
+                    Assert.IsType<Guid>(traceEvent.Properties["MS_FunctionInvocationId"]);
+
+                    if (startedOrEndedMessage)
+                    {
+                        // Validate that the FunctionDescriptor looks right
+                        var start = message.IndexOf("'") + 1;
+                        var end = message.IndexOf("'", start) - start;
+                        var functionName = message.Substring(start, end);
+                        var descriptor = (FunctionDescriptor)traceEvent.Properties["MS_FunctionDescriptor"];
+                        Assert.Equal(functionName, descriptor.ShortName);
+                    }
+                }
+                else
+                {
+                    Assert.Equal(0, traceEvent.Properties.Count);
+                }
+            }
         }
 
         [Fact]
@@ -206,7 +251,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             {
                 host.Call(methodInfo);
             }
-            catch {}
+            catch { }
 
             // We expect 3 error messages total
             TraceEvent[] traceErrors = trace.Traces.Where(p => p.Level == TraceLevel.Error).ToArray();
@@ -222,23 +267,99 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
         }
 
         [Fact]
-        public async Task Timeout_TimeoutExpires_TriggersCancellation()
+        public void RandGuidOutput_GeneratesRandomIDs()
+        {
+            JobHost host = new JobHost(_hostConfig);
+
+            var blobClient = _fixture.StorageAccount.CreateCloudBlobClient();
+            var container = blobClient.GetContainerReference("test-output");
+            if (container.Exists())
+            {
+                foreach (CloudBlockBlob blob in container.ListBlobs())
+                {
+                    blob.Delete();
+                }
+            }
+
+            MethodInfo methodInfo = GetType().GetMethod("RandGuidOutput");
+            for (int i = 0; i < 3; i++)
+            {
+                var arguments = new Dictionary<string, object>
+                {
+                    { "input", i.ToString() }
+                };
+                host.Call(methodInfo, arguments);
+            }
+
+            // We expect 3 separate blobs to have been written
+            var blobs = container.ListBlobs().Cast<CloudBlockBlob>().ToArray();
+            Assert.Equal(3, blobs.Length);
+            foreach (var blob in blobs)
+            {
+                string content = blob.DownloadText(Encoding.UTF8);
+                int blobInt = int.Parse(content.Trim(new char[] { '\uFEFF', '\u200B' }));
+                Assert.True(blobInt >= 0 && blobInt <= 3);
+            }
+        }
+
+        [Fact]
+        public async Task Timeout_TimeoutExpires_Cancels()
+        {
+            var exceptionHandler = new TestExceptionHandler();
+            await RunTimeoutTest(exceptionHandler, typeof(TaskCanceledException), "TimeoutJob");
+            Assert.Empty(exceptionHandler.UnhandledExceptionInfos);
+            Assert.Empty(exceptionHandler.TimeoutExceptionInfos);
+        }
+
+        [Fact]
+        public async Task TimeoutWithThrow_TimeoutExpires_CancelsAndThrows()
+        {
+            var exceptionHandler = new TestExceptionHandler();
+            await RunTimeoutTest(exceptionHandler, typeof(FunctionTimeoutException), "TimeoutJob_Throw");
+            var exception = exceptionHandler.TimeoutExceptionInfos.Single().SourceException;
+            Assert.IsType<FunctionTimeoutException>(exception);
+            Assert.Empty(exceptionHandler.UnhandledExceptionInfos);
+        }
+
+        [Fact]
+        public async Task TimeoutWithThrow_NoCancellationToken_CancelsAndThrows()
+        {
+            var exceptionHandler = new TestExceptionHandler();
+            await RunTimeoutTest(exceptionHandler, typeof(FunctionTimeoutException), "TimeoutJob_Throw_NoToken");
+            var exception = exceptionHandler.TimeoutExceptionInfos.Single().SourceException;
+            Assert.IsType<FunctionTimeoutException>(exception);
+            Assert.Empty(exceptionHandler.UnhandledExceptionInfos);
+        }
+
+        private async Task RunTimeoutTest(IWebJobsExceptionHandler exceptionHandler, Type expectedExceptionType, string functionName)
         {
             TestTraceWriter trace = new TestTraceWriter(TraceLevel.Verbose);
             _hostConfig.Tracing.Tracers.Add(trace);
+            _hostConfig.AddService<IWebJobsExceptionHandler>(exceptionHandler);
             JobHost host = new JobHost(_hostConfig);
 
-            MethodInfo methodInfo = GetType().GetMethod("TimeoutJob");
-            TaskCanceledException ex = await Assert.ThrowsAsync<TaskCanceledException>(async () =>
+            try
             {
-                await host.CallAsync(methodInfo);
-            });
+                await host.StartAsync();
+
+                MethodInfo methodInfo = GetType().GetMethod(functionName);
+                Exception ex = await Assert.ThrowsAnyAsync<Exception>(async () =>
+                {
+                    await host.CallAsync(methodInfo);
+                });
+
+                Assert.IsType(expectedExceptionType, ex);
+            }
+            finally
+            {
+                host.Stop();
+            }
 
             // We expect 3 error messages total
             TraceEvent[] traceErrors = trace.Traces.Where(p => p.Level == TraceLevel.Error).ToArray();
             Assert.Equal(3, traceErrors.Length);
-            Assert.True(traceErrors[0].Message.StartsWith("Timeout value of 00:00:01 exceeded by function 'AsyncChainEndToEndTests.TimeoutJob'"));
-            Assert.True(traceErrors[1].Message.StartsWith("Executed: 'AsyncChainEndToEndTests.TimeoutJob' (Failed)"));
+            Assert.True(traceErrors[0].Message.StartsWith(string.Format("Timeout value of 00:00:01 exceeded by function 'AsyncChainEndToEndTests.{0}'", functionName)));
+            Assert.True(traceErrors[1].Message.StartsWith(string.Format("Executed: 'AsyncChainEndToEndTests.{0}' (Failed)", functionName)));
             Assert.True(traceErrors[2].Message.Trim().StartsWith("Function had errors. See Azure WebJobs SDK dashboard for details."));
         }
 
@@ -280,7 +401,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
 
                     // expect no function output
                     TraceEvent[] traces = trace.Traces.ToArray();
-                    Assert.Equal(3, traces.Length);
+                    Assert.Equal(5, traces.Length);
                     Assert.False(traces.Any(p => p.Message.Contains("test message")));
                 }
             }
@@ -314,7 +435,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
 
                     // expect normal logs to be written (TraceLevel override is ignored)
                     TraceEvent[] traces = trace.Traces.ToArray();
-                    Assert.Equal(8, traces.Length);
+                    Assert.Equal(10, traces.Length);
 
                     string output = string.Join("\r\n", traces.Select(p => p.Message));
                     Assert.True(output.Contains("Executing: 'AsyncChainEndToEndTests.QueueTrigger_TraceLevelOverride'"));
@@ -347,17 +468,43 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             throw new Exception("Kaboom!");
         }
 
+        [NoAutomaticTrigger]
+        public static void RandGuidOutput(
+            [QueueTrigger("test")] string input,
+            [Blob("test-output/{rand-guid}")] out string blob)
+        {
+            blob = input;
+        }
+
         [Disable("Disable_DisabledJob")]
         public static void DisabledJob([QueueTrigger(Queue1Name)] string message)
         {
         }
 
         [NoAutomaticTrigger]
-        [Timeout("00:00:01")]
+        [Timeout("00:00:01", TimeoutWhileDebugging = true)]
         public static async Task TimeoutJob(CancellationToken cancellationToken, TextWriter log)
         {
             log.WriteLine("Started");
             await Task.Delay(_timeoutJobDelay, cancellationToken);
+            log.WriteLine("Completed");
+        }
+
+        [NoAutomaticTrigger]
+        [Timeout("00:00:01", ThrowOnTimeout = true, TimeoutWhileDebugging = true)]
+        public static async Task TimeoutJob_Throw(CancellationToken cancellationToken, TextWriter log)
+        {
+            log.WriteLine("Started");
+            await Task.Delay(_timeoutJobDelay, cancellationToken);
+            log.WriteLine("Completed");
+        }
+
+        [NoAutomaticTrigger]
+        [Timeout("00:00:01", ThrowOnTimeout = true, TimeoutWhileDebugging = true)]
+        public static async Task TimeoutJob_Throw_NoToken(TextWriter log)
+        {
+            log.WriteLine("Started");
+            await Task.Delay(_timeoutJobDelay);
             log.WriteLine("Completed");
         }
 
@@ -487,7 +634,7 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
             public int BeginProcessingCount = 0;
             public int CompleteProcessingCount = 0;
 
-            public CustomQueueProcessor(QueueProcessorFactoryContext context) : base (context)
+            public CustomQueueProcessor(QueueProcessorFactoryContext context) : base(context)
             {
                 Context = context;
             }
@@ -600,6 +747,30 @@ namespace Microsoft.Azure.WebJobs.Host.EndToEndTests
                 {
                     testQueue.Delete();
                 }
+            }
+        }
+
+        private class TestExceptionHandler : IWebJobsExceptionHandler
+        {
+            public ICollection<ExceptionDispatchInfo> UnhandledExceptionInfos { get; private set; }
+            public ICollection<ExceptionDispatchInfo> TimeoutExceptionInfos { get; private set; }
+
+            public void Initialize(JobHost host)
+            {
+                UnhandledExceptionInfos = new List<ExceptionDispatchInfo>();
+                TimeoutExceptionInfos = new List<ExceptionDispatchInfo>();
+            }
+
+            public Task OnTimeoutExceptionAsync(ExceptionDispatchInfo exceptionInfo, TimeSpan timeoutGracePeriod)
+            {
+                TimeoutExceptionInfos.Add(exceptionInfo);
+                return Task.FromResult(0);
+            }
+
+            public Task OnUnhandledExceptionAsync(ExceptionDispatchInfo exceptionInfo)
+            {
+                UnhandledExceptionInfos.Add(exceptionInfo);
+                return Task.FromResult(0);
             }
         }
     }
