@@ -42,6 +42,7 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             }
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1804:RemoveUnusedLocals", MessageId = "genericTypeDefinition")]
         private static Type GetTaskInnerTypeOrNull(Type taskType)
         {
             Debug.Assert(taskType != null);

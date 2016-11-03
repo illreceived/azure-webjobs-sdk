@@ -59,9 +59,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Triggers
             string topicName = null;
             string subscriptionName = null;
             string entityPath = null;
-            bool useSessions = false;
-
-            useSessions = attribute.UseSession;
+   
             if (attribute.QueueName != null)
             {
                 queueName = Resolve(attribute.QueueName);

@@ -127,6 +127,7 @@ namespace Microsoft.Azure.WebJobs.Host.Executors
             }
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1804:RemoveUnusedLocals", MessageId = "terminated")]
         private static void ProcessAbortHostInstanceMessage()
         {
             bool terminated = NativeMethods.TerminateProcess(NativeMethods.GetCurrentProcess(), 1);
