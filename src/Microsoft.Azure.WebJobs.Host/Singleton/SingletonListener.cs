@@ -2,10 +2,14 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
+using System.Globalization;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
+using Microsoft.Azure.WebJobs.Host.Loggers;
+using Microsoft.Azure.WebJobs.Logging;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.Azure.WebJobs.Host.Listeners
 {
@@ -15,11 +19,13 @@ namespace Microsoft.Azure.WebJobs.Host.Listeners
         private readonly SingletonManager _singletonManager;
         private readonly SingletonConfiguration _singletonConfig;
         private readonly IListener _innerListener;
+        private readonly TraceWriter _trace;
+        private readonly ILogger _logger;
         private string _lockId;
         private object _lockHandle;
         private bool _isListening;
 
-        public SingletonListener(MethodInfo method, SingletonAttribute attribute, SingletonManager singletonManager, IListener innerListener)
+        public SingletonListener(MethodInfo method, SingletonAttribute attribute, SingletonManager singletonManager, IListener innerListener, TraceWriter trace, ILoggerFactory loggerFactory)
         {
             _attribute = attribute;
             _singletonManager = singletonManager;
@@ -29,6 +35,9 @@ namespace Microsoft.Azure.WebJobs.Host.Listeners
             string boundScopeId = _singletonManager.GetBoundScopeId(_attribute.ScopeId);
             _lockId = singletonManager.FormatLockId(method, _attribute.Scope, boundScopeId);
             _lockId += ".Listener";
+
+            _trace = trace;
+            _logger = loggerFactory?.CreateLogger(LogCategories.Singleton);
         }
 
         // exposed for testing
@@ -43,6 +52,10 @@ namespace Microsoft.Azure.WebJobs.Host.Listeners
 
             if (_lockHandle == null)
             {
+                string msg = string.Format(CultureInfo.InvariantCulture, "Unable to acquire Singleton lock ({0}).", _lockId);
+                _trace.Verbose(msg, source: TraceSource.Execution);
+                _logger?.LogDebug(msg);
+
                 // If we're unable to acquire the lock, it means another listener
                 // has it so we return w/o starting our listener.
                 //
@@ -76,7 +89,7 @@ namespace Microsoft.Azure.WebJobs.Host.Listeners
             {
                 await _innerListener.StopAsync(cancellationToken);
                 _isListening = false;
-            } 
+            }
         }
 
         public void Cancel()
@@ -120,7 +133,7 @@ namespace Microsoft.Azure.WebJobs.Host.Listeners
                     LockTimer.Dispose();
                     LockTimer = null;
                 }
-                
+
                 await _innerListener.StartAsync(CancellationToken.None);
 
                 _isListening = true;

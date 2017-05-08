@@ -10,7 +10,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Microsoft.Azure.WebJobs.Host</RootNamespace>
     <AssemblyName>Microsoft.Azure.WebJobs.Host</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <NuGetPackageImportStamp>
     </NuGetPackageImportStamp>
@@ -18,6 +18,7 @@
     <CodeAnalysisRuleSet>..\src.ruleset</CodeAnalysisRuleSet>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <StyleCopTreatErrorsAsWarnings>false</StyleCopTreatErrorsAsWarnings>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -28,7 +29,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Debug\Microsoft.Azure.WebJobs.Host.xml</DocumentationFile>
-    <LangVersion>5</LangVersion>
+    <LangVersion>default</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RunCodeAnalysis>true</RunCodeAnalysis>
     <CodeAnalysisIgnoreGeneratedCode>true</CodeAnalysisIgnoreGeneratedCode>
@@ -41,7 +42,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DocumentationFile>bin\Release\Microsoft.Azure.WebJobs.Host.xml</DocumentationFile>
-    <LangVersion>5</LangVersion>
+    <LangVersion>default</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>true</SignAssembly>
@@ -57,16 +58,24 @@
       <HintPath>..\..\packages\Microsoft.Azure.KeyVault.Core.1.0.0\lib\net40\Microsoft.Azure.KeyVault.Core.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Microsoft.Data.Edm, Version=5.7.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.Data.Edm.5.7.0\lib\net40\Microsoft.Data.Edm.dll</HintPath>
+    <Reference Include="Microsoft.Data.Edm, Version=5.8.1.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.Data.Edm.5.8.2\lib\net40\Microsoft.Data.Edm.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Microsoft.Data.OData, Version=5.7.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.Data.OData.5.7.0\lib\net40\Microsoft.Data.OData.dll</HintPath>
+    <Reference Include="Microsoft.Data.OData, Version=5.8.1.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.Data.OData.5.8.2\lib\net40\Microsoft.Data.OData.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Microsoft.Data.Services.Client, Version=5.7.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Microsoft.Data.Services.Client.5.7.0\lib\net40\Microsoft.Data.Services.Client.dll</HintPath>
+    <Reference Include="Microsoft.Data.Services.Client, Version=5.8.1.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.Data.Services.Client.5.8.2\lib\net40\Microsoft.Data.Services.Client.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Microsoft.Extensions.Logging.Abstractions, Version=1.1.1.0, Culture=neutral, PublicKeyToken=adb9793829ddae60, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.Extensions.Logging.Abstractions.1.1.1\lib\netstandard1.1\Microsoft.Extensions.Logging.Abstractions.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Microsoft.Win32.Primitives, Version=4.0.2.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.Win32.Primitives.4.3.0\lib\net46\Microsoft.Win32.Primitives.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.WindowsAzure.Configuration, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
@@ -82,19 +91,89 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />
+    <Reference Include="System.AppContext, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.AppContext.4.3.0\lib\net46\System.AppContext.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.Configuration" />
+    <Reference Include="System.Console, Version=4.0.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Console.4.3.0\lib\net46\System.Console.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System.Core" />
+    <Reference Include="System.Diagnostics.DiagnosticSource, Version=4.0.1.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Diagnostics.DiagnosticSource.4.3.0\lib\net46\System.Diagnostics.DiagnosticSource.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Globalization.Calendars, Version=4.0.2.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Globalization.Calendars.4.3.0\lib\net46\System.Globalization.Calendars.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.IO.Compression, Version=4.1.2.0, Culture=neutral, PublicKeyToken=b77a5c561934e089, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.IO.Compression.4.3.0\lib\net46\System.IO.Compression.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.IO.Compression.ZipFile, Version=4.0.2.0, Culture=neutral, PublicKeyToken=b77a5c561934e089, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.IO.Compression.ZipFile.4.3.0\lib\net46\System.IO.Compression.ZipFile.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.IO.FileSystem, Version=4.0.2.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.IO.FileSystem.4.3.0\lib\net46\System.IO.FileSystem.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.IO.FileSystem.Primitives, Version=4.0.2.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.IO.FileSystem.Primitives.4.3.0\lib\net46\System.IO.FileSystem.Primitives.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Net.Http, Version=4.1.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Net.Http.4.3.1\lib\net46\System.Net.Http.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Net.Sockets, Version=4.1.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Net.Sockets.4.3.0\lib\net46\System.Net.Sockets.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System.Numerics" />
+    <Reference Include="System.Runtime.InteropServices.RuntimeInformation, Version=4.0.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Runtime.InteropServices.RuntimeInformation.4.3.0\lib\net45\System.Runtime.InteropServices.RuntimeInformation.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Security.Cryptography.Algorithms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Security.Cryptography.Algorithms.4.3.0\lib\net46\System.Security.Cryptography.Algorithms.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Encoding, Version=4.0.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Security.Cryptography.Encoding.4.3.0\lib\net46\System.Security.Cryptography.Encoding.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Primitives, Version=4.0.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Security.Cryptography.Primitives.4.3.0\lib\net46\System.Security.Cryptography.Primitives.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.X509Certificates, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Security.Cryptography.X509Certificates.4.3.0\lib\net46\System.Security.Cryptography.X509Certificates.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="System.ServiceModel" />
-    <Reference Include="System.Spatial, Version=5.7.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\System.Spatial.5.7.0\lib\net40\System.Spatial.dll</HintPath>
+    <Reference Include="System.Spatial, Version=5.8.1.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Spatial.5.8.2\lib\net40\System.Spatial.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Threading.Tasks.Dataflow, Version=4.5.24.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Microsoft.Tpl.Dataflow.4.5.24\lib\portable-net45+win8+wpa81\System.Threading.Tasks.Dataflow.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System.Xml.Linq" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.ReaderWriter, Version=4.1.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\System.Xml.ReaderWriter.4.3.0\lib\net46\System.Xml.ReaderWriter.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Common\CommonAssemblyInfo.cs">
@@ -373,31 +452,65 @@
     <Compile Include="..\Microsoft.Azure.WebJobs.Storage\Table\TypeEntityResolver.cs">
       <Link>Storage\Table\TypeEntityResolver.cs</Link>
     </Compile>
+    <Compile Include="AzureStorageDeploymentValidator.cs" />
     <Compile Include="Bindings\AmbientBindingContext.cs" />
     <Compile Include="Bindings\AttributeCloner.cs" />
+    <Compile Include="Bindings\AttributeConverter.cs" />
     <Compile Include="Bindings\BindingBase.cs" />
     <Compile Include="Bindings\BindingFactory.cs" />
-    <Compile Include="Bindings\BindingProviders\AsyncCollectorWithConverterManagerBindingProvider.cs" />
+    <Compile Include="Bindings\BindingProviders\BindToInputBindingProvider.cs" />
+    <Compile Include="Bindings\BindingProviders\AsyncCollectorBindingProvider.cs" />
+    <Compile Include="Bindings\BindingProviders\IRuleProvider.cs" />
+    <Compile Include="Bindings\BindingProviders\Rule.cs" />
+    <Compile Include="Bindings\BindingProviders\FluentBindingProvider.cs" />
     <Compile Include="Bindings\BindingProviders\FilteringBindingProvider.cs" />
+    <Compile Include="Bindings\BindingProviders\FluidBindingProviderExtensions.cs" />
     <Compile Include="Bindings\BindingProviders\GenericCompositeBindingProvider.cs" />
-    <Compile Include="Bindings\BindingProviders\GenericAsyncCollectorBindingProvider.cs" />
-    <Compile Include="Bindings\BindingProviders\ExactTypeBindingProvider.cs" />
-    <Compile Include="Bindings\BindingProviders\GenericItemBindingProvider.cs" />
     <Compile Include="Bindings\BindingProviders\ItemBindingProvider.cs" />
     <Compile Include="Bindings\BindingProviders\ValidatingWrapperBindingProvider.cs" />
     <Compile Include="Bindings\DefaultAttributeInvokerDescriptor.cs" />
     <Compile Include="Bindings\FuncArgumentBuilder.cs" />
     <Compile Include="Bindings\IArgumentBindingProvider.cs" />
+    <Compile Include="Bindings\Logger\LoggerBinding.cs" />
+    <Compile Include="Bindings\Logger\LoggerBindingProvider.cs" />
+    <Compile Include="Bindings\OpenType.cs" />
+    <Compile Include="Bindings\Path\BindingParameterResolver.cs" />
+    <Compile Include="Bindings\PatternMatcher.cs" />
+    <Compile Include="Bindings\DefaultResolutionPolicy.cs" />
+    <Compile Include="Bindings\IResolutionPolicy.cs" />
     <Compile Include="Bindings\Runtime\Binder.cs" />
     <Compile Include="Blobs\Listeners\IBlobScanInfoManager.cs" />
     <Compile Include="Blobs\Listeners\StorageBlobScanInfoManager.cs" />
     <Compile Include="Blobs\StorageBlobToCloudAppendBlobConverter.cs" />
+    <Compile Include="Config\IWebhookProvider.cs" />
+    <Compile Include="Config\FluentConverterRules.cs" />
+    <Compile Include="Config\FluentBindingRule.cs" />
+    <Compile Include="Config\ServiceProviderWrapper.cs" />
     <Compile Include="DefaultNameResolver.cs" />
+    <Compile Include="Diagnostics\ExceptionFormatter.cs" />
+    <Compile Include="Executors\CompositeFunctionEventCollector.cs" />
     <Compile Include="Executors\FunctionInstanceTraceWriter.cs" />
-    <Compile Include="Extensions\ExceptionExtensions.cs" />
+    <Compile Include="Extensions\IJobHostMetadataProvider.cs" />
+    <Compile Include="Extensions\JobHostMetadataProvider.cs" />
     <Compile Include="FuncConverter.cs" />
     <Compile Include="FunctionTimeoutException.cs" />
+    <Compile Include="Exceptions\RecoverableException.cs" />
+    <Compile Include="JobHostBlobsConfiguration.cs" />
+    <Compile Include="Listeners\FunctionListener.cs" />
+    <Compile Include="Loggers\Logger\Aggregator\FunctionResultAggregatorConfiguration.cs" />
+    <Compile Include="Loggers\Logger\Aggregator\FunctionResultAggregate.cs" />
+    <Compile Include="Loggers\Logger\Aggregator\FunctionResultAggregator.cs" />
+    <Compile Include="Loggers\Logger\Aggregator\FunctionResultAggregatorFactory.cs" />
+    <Compile Include="Loggers\Logger\Aggregator\IFunctionResultAggregatorFactory.cs" />
+    <Compile Include="Loggers\Logger\Constants\LogCategories.cs" />
+    <Compile Include="Loggers\Logger\Constants\LoggingKeys.cs" />
+    <Compile Include="Loggers\Logger\Constants\ScopeKeys.cs" />
+    <Compile Include="Loggers\Logger\LoggerExtensions.cs" />
+    <Compile Include="Loggers\Logger\LogCategoryFilter.cs" />
+    <Compile Include="Loggers\Logger\FormattedLogValuesCollection.cs" />
+    <Compile Include="Loggers\Logger\TraceWriter\LoggerTraceWriter.cs" />
     <Compile Include="Loggers\TraceEventExtensions.cs" />
+    <Compile Include="Exceptions\FunctionException.cs" />
     <Compile Include="Queues\Bindings\QueueBindingProvider.cs" />
     <Compile Include="Bindings\TraceWriter\TextWriterTraceAdapter.cs" />
     <Compile Include="Bindings\TraceWriter\TraceWriterBinding.cs" />
@@ -415,8 +528,15 @@
     <Compile Include="Blobs\Listeners\BlobQueueRegistration.cs" />
     <Compile Include="Blobs\Listeners\ContainerScanInfo.cs" />
     <Compile Include="Blobs\Listeners\ScanBlobScanLogHybridPollingStrategy.cs" />
-    <Compile Include="Bindings\AsyncCollector\AsyncCollectorBinding.cs" />
     <Compile Include="Config\ExtensionConfigContextExtensions.cs" />
+    <Compile Include="Storage\IStorageAccountExtensions.cs" />
+    <Compile Include="Storage\StorageAccountType.cs" />
+    <Compile Include="Queues\PoisonQueueMessageEventArgs.cs" />
+    <Compile Include="Bindings\ODataFilterResolutionPolicy.cs" />
+    <Compile Include="Tables\TableExtension.cs" />
+    <Compile Include="Storage\StorageAccountTypeExtensions.cs" />
+    <Compile Include="Tables\TableFilterFormatter.cs" />
+    <Compile Include="Listeners\FunctionListenerException.cs" />
     <Compile Include="Triggers\StrategyTriggerBinding.cs" />
     <Compile Include="Bindings\ConstantValueProvider.cs" />
     <Compile Include="Bindings\ConverterManager.cs" />
@@ -448,7 +568,6 @@
     <Compile Include="Executors\FunctionInvokerFactory.cs" />
     <Compile Include="Executors\FunctionResult.cs" />
     <Compile Include="Executors\IFunctionInvoker.cs" />
-    <Compile Include="Executors\IJobHostContextFactory.cs" />
     <Compile Include="Executors\ActivatorInstanceFactory.cs" />
     <Compile Include="Executors\ITriggeredFunctionExecutor.cs" />
     <Compile Include="Executors\NullInstanceFactory.cs" />
@@ -634,7 +753,7 @@
     <Compile Include="Executors\DefaultStorageCredentialsValidator.cs" />
     <Compile Include="Executors\IStorageCredentialsValidator.cs" />
     <Compile Include="Executors\JobHostContext.cs" />
-    <Compile Include="Executors\JobHostContextFactory.cs" />
+    <Compile Include="Executors\JobHostConfigurationExtensions.cs" />
     <Compile Include="Indexers\IFunctionIndex.cs" />
     <Compile Include="Indexers\IFunctionIndexLookup.cs" />
     <Compile Include="Indexers\FunctionIndex.cs" />
@@ -663,12 +782,7 @@
     <Compile Include="Queues\StorageQueueMessageExtensions.cs" />
     <Compile Include="Queues\Triggers\StorageQueueMessageToCloudQueueMessageConverter.cs" />
     <Compile Include="Queues\Triggers\CloudQueueMessageToStorageQueueMessageConverter.cs" />
-    <Compile Include="Tables\AsyncCollectorArgumentBindingProvider.cs" />
-    <Compile Include="Tables\ITableArgumentBinding.cs" />
-    <Compile Include="Tables\IStorageTableArgumentBindingProvider.cs" />
     <Compile Include="Tables\ITableEntityArgumentBindingProvider.cs" />
-    <Compile Include="Tables\TableArgumentBindingExtensionProvider.cs" />
-    <Compile Include="Tables\StorageTableArgumentBindingProvider.cs" />
     <Compile Include="Tables\ConverterPropertyGetter.cs" />
     <Compile Include="Tables\ConverterPropertySetter.cs" />
     <Compile Include="Tables\Converters\EntityPropertyToNullableEnumConverter.cs" />
@@ -709,10 +823,7 @@
     <Compile Include="Tables\Converters\ByteArrayToEntityPropertyConverter.cs" />
     <Compile Include="Tables\Converters\NullableBooleanToEntityPropertyConverter.cs" />
     <Compile Include="Tables\Converters\BooleanToEntityPropertyConverter.cs" />
-    <Compile Include="Tables\CloudQueueToStorageQueueConverter.cs" />
-    <Compile Include="Tables\CollectorArgumentBindingProvider.cs" />
     <Compile Include="Tables\EntityPropertyToTConverterFactory.cs" />
-    <Compile Include="Tables\IStorageTableArgumentBinding.cs" />
     <Compile Include="Tables\PocoEntityValueBinder.cs" />
     <Compile Include="Tables\PocoEntityArgumentBinding.cs" />
     <Compile Include="Tables\PocoEntityCollectorBinder.cs" />
@@ -772,7 +883,7 @@
     <Compile Include="Listeners\IListenerFactory.cs" />
     <Compile Include="Queues\Listeners\QueueListener.cs" />
     <Compile Include="Listeners\TimerListener.cs" />
-    <Compile Include="Executors\ExceptionExtensions.cs" />
+    <Compile Include="Extensions\ExceptionExtensions.cs" />
     <Compile Include="Executors\IFunctionExecutor.cs" />
     <Compile Include="StorageClient.cs" />
     <Compile Include="Bindings\StructOutputConverter.cs" />
@@ -863,27 +974,17 @@
     <Compile Include="Executors\BindingSource.cs" />
     <Compile Include="Queues\Triggers\StringToStorageQueueMessageConverter.cs" />
     <Compile Include="Tables\EntityOutputConverter.cs" />
-    <Compile Include="Tables\IBindableTablePath.cs" />
     <Compile Include="Tables\IBindableTableEntityPath.cs" />
     <Compile Include="Tables\NullEntityValueProvider.cs" />
     <Compile Include="Tables\OutputConverter.cs" />
-    <Compile Include="Tables\ParameterizedTablePath.cs" />
     <Compile Include="Tables\ParameterizedTableEntityPath.cs" />
-    <Compile Include="Tables\BindableTablePath.cs" />
     <Compile Include="Tables\StringToTableEntityContextConverter.cs" />
-    <Compile Include="Tables\StringToStorageTableConverter.cs" />
     <Compile Include="Tables\PocoEntityArgumentBindingProvider.cs" />
     <Compile Include="Tables\TableEntityBinding.cs" />
-    <Compile Include="Tables\TableBinding.cs" />
-    <Compile Include="Tables\QueryableArgumentBindingProvider.cs" />
-    <Compile Include="Tables\CloudTableArgumentBindingProvider.cs" />
     <Compile Include="Tables\CompositeEntityArgumentBindingProvider.cs" />
-    <Compile Include="Tables\CompositeArgumentBindingProvider.cs" />
     <Compile Include="Tables\TableEntityContext.cs" />
     <Compile Include="Tables\BindableTableEntityPath.cs" />
     <Compile Include="Tables\BoundTableEntityPath.cs" />
-    <Compile Include="Tables\BoundTablePath.cs" />
-    <Compile Include="Tables\TableValueProvider.cs" />
     <Compile Include="Tables\TableAttributeBindingProvider.cs" />
     <Compile Include="Triggers\CompositeTriggerBindingProvider.cs" />
     <Compile Include="Triggers\ITriggerBinding.cs" />
@@ -970,9 +1071,9 @@
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Enable NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
     <Error Condition="!Exists('..\..\packages\xunit.runner.visualstudio.2.1.0\build\net20\xunit.runner.visualstudio.props')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\xunit.runner.visualstudio.2.1.0\build\net20\xunit.runner.visualstudio.props'))" />
-    <Error Condition="!Exists('..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets'))" />
+    <Error Condition="!Exists('..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets'))" />
   </Target>
-  <Import Project="..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets" Condition="Exists('..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets')" />
+  <Import Project="..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets" Condition="Exists('..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets')" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

@@ -9,6 +9,7 @@ using Microsoft.Azure.WebJobs.Host.Executors;
 using Microsoft.Azure.WebJobs.Host.Listeners;
 using Microsoft.Azure.WebJobs.Host.Storage.Queue;
 using Microsoft.Azure.WebJobs.Host.Timers;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
 {
@@ -23,6 +24,7 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
         private readonly IContextSetter<IMessageEnqueuedWatcher> _messageEnqueuedWatcherSetter;
         private readonly ISharedContextProvider _sharedContextProvider;
         private readonly TraceWriter _trace;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly ITriggeredFunctionExecutor _executor;
 
         public QueueListenerFactory(IStorageQueue queue,
@@ -31,6 +33,7 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
             IContextSetter<IMessageEnqueuedWatcher> messageEnqueuedWatcherSetter,
             ISharedContextProvider sharedContextProvider,
             TraceWriter trace,
+            ILoggerFactory loggerFactory,
             ITriggeredFunctionExecutor executor)
         {
             if (queue == null)
@@ -75,6 +78,7 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
             _messageEnqueuedWatcherSetter = messageEnqueuedWatcherSetter;
             _sharedContextProvider = sharedContextProvider;
             _trace = trace;
+            _loggerFactory = loggerFactory;
             _executor = executor;
         }
 
@@ -83,13 +87,11 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
         {
             QueueTriggerExecutor triggerExecutor = new QueueTriggerExecutor(_executor);
 
-            IDelayStrategy delayStrategy = new RandomizedExponentialBackoffStrategy(QueuePollingIntervals.Minimum, _queueConfiguration.MaxPollingInterval);
-            
             SharedQueueWatcher sharedWatcher = _sharedContextProvider.GetOrCreateInstance<SharedQueueWatcher>(
                 new SharedQueueWatcherFactory(_messageEnqueuedWatcherSetter));
 
-            IListener listener = new QueueListener(_queue, _poisonQueue, triggerExecutor, delayStrategy,
-                _exceptionHandler, _trace, sharedWatcher, _queueConfiguration);
+            IListener listener = new QueueListener(_queue, _poisonQueue, triggerExecutor,
+                _exceptionHandler, _trace, _loggerFactory, sharedWatcher, _queueConfiguration);
 
             return Task.FromResult(listener);
         }

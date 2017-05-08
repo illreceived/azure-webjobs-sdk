@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
+using Microsoft.Azure.WebJobs.Description;
 
 namespace Microsoft.Azure.WebJobs
 {
@@ -29,9 +30,11 @@ namespace Microsoft.Azure.WebJobs
     /// </description></item>
     /// </list>
     /// </remarks>
-    [AttributeUsage(AttributeTargets.Parameter)]
+    [AttributeUsage(AttributeTargets.Parameter | AttributeTargets.ReturnValue)]
     [DebuggerDisplay("{DebuggerDisplay,nq}")]
-    public class TableAttribute : Attribute
+    [ConnectionProvider(typeof(StorageAccountAttribute))]
+    [Binding]
+    public class TableAttribute : Attribute, IConnectionProvider
     {
         private readonly string _tableName;
         private readonly string _partitionKey;
@@ -91,7 +94,7 @@ namespace Microsoft.Azure.WebJobs
         /// <summary>
         /// Allow arbitrary table filter. RowKey should be null. 
         /// </summary>
-        [AutoResolve]
+        [AutoResolve(ResolutionPolicyType = typeof(ODataFilterResolutionPolicy))]
         public string Filter
         {
             get; set;
@@ -103,7 +106,7 @@ namespace Microsoft.Azure.WebJobs
         public int Take
         {
             get; set;
-        }        
+        }
 
         [SuppressMessage("Microsoft.Performance", "CA1811:AvoidUncalledPrivateCode")]
         private string DebuggerDisplay
@@ -121,5 +124,8 @@ namespace Microsoft.Azure.WebJobs
                 }
             }
         }
+
+        /// <inheritdoc />
+        public string Connection { get; set; }
     }
 }

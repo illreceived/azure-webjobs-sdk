@@ -3,17 +3,20 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host.Bindings;
 using Microsoft.Azure.WebJobs.Host.Indexers;
 using Microsoft.Azure.WebJobs.Host.Protocols;
+using Microsoft.Azure.WebJobs.Host.TestCommon;
 using Microsoft.Azure.WebJobs.Host.Triggers;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
-using Xunit.Extensions;
 
 namespace Microsoft.Azure.WebJobs.Host.UnitTests.Indexers
 {
@@ -56,6 +59,37 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Indexers
 
             // Verify
             indexMock.Verify(i => i.Add(It.IsAny<IFunctionDefinition>(), It.IsAny<FunctionDescriptor>(), It.IsAny<MethodInfo>()), Times.Never);
+        }
+
+        [Theory]
+        [InlineData("TraceLevelOverride_Off", TraceLevel.Off)]
+        [InlineData("TraceLevelOverride_Error", TraceLevel.Error)]
+        [InlineData("ReturnVoid", TraceLevel.Verbose)]
+        public void GetFunctionTraceLevel_ReturnsExpectedLevel(string method, TraceLevel level)
+        {
+            // Arrange
+            var collector = new TestIndexCollector();
+            FunctionIndexer product = CreateProductUnderTest();
+
+            // Act & Assert
+            product.IndexMethodAsync(typeof(FunctionIndexerTests).GetMethod(method),
+                collector, CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.Equal(level, collector.Functions.First().TraceLevel);
+        }
+
+        [Fact]
+        public void GetFunctionTimeout_ReturnsExpected()
+        {
+            // Arrange
+            var collector = new TestIndexCollector();
+            FunctionIndexer product = CreateProductUnderTest();
+
+            // Act & Assert
+            product.IndexMethodAsync(typeof(FunctionIndexerTests).GetMethod("Timeout_Set"),
+                collector, CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.Equal(TimeSpan.FromMinutes(30), collector.Functions.First().TimeoutAttribute.Timeout);
         }
 
         [Fact]
@@ -112,6 +146,34 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Indexers
             // Act & Assert
             product.IndexMethodAsync(typeof(FunctionIndexerTests).GetMethod("ReturnTask"),
                 index, CancellationToken.None).GetAwaiter().GetResult();
+        }
+
+        [Fact]
+        public async Task IndexMethod_IfMethodReturnsAsyncVoid_Throws()
+        {
+            var traceWriter = new TestTraceWriter(TraceLevel.Verbose);
+            var loggerFactory = new LoggerFactory();
+            var loggerProvider = new TestLoggerProvider();
+            loggerFactory.AddProvider(loggerProvider);
+
+            // Arrange
+            IFunctionIndexCollector index = CreateStubFunctionIndex();
+            FunctionIndexer product = CreateProductUnderTest(traceWriter: traceWriter, loggerFactory: loggerFactory);
+
+            // Act & Assert
+            await product.IndexMethodAsync(typeof(FunctionIndexerTests).GetMethod("ReturnAsyncVoid"), index, CancellationToken.None);
+
+            string expectedMessage = "Function 'ReturnAsyncVoid' is async but does not return a Task. Your function may not run correctly.";
+
+            // Validate TraceWriter
+            var traceWarning = traceWriter.Traces.First(p => p.Level == TraceLevel.Warning);
+            Assert.Equal(expectedMessage, traceWarning.Message);
+
+            // Validate Logger
+            var logger = loggerProvider.CreatedLoggers.Single(l => l.Category == Logging.LogCategories.Startup);
+            var loggerWarning = logger.LogMessages.Single();
+            Assert.Equal(LogLevel.Warning, loggerWarning.Level);
+            Assert.Equal(expectedMessage, loggerWarning.FormattedMessage);
         }
 
         [Fact]
@@ -268,9 +330,9 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Indexers
             return new Mock<IFunctionIndexCollector>(MockBehavior.Strict).Object;
         }
 
-        private static FunctionIndexer CreateProductUnderTest()
+        private static FunctionIndexer CreateProductUnderTest(TraceWriter traceWriter = null, ILoggerFactory loggerFactory = null)
         {
-            return FunctionIndexerFactory.Create();
+            return FunctionIndexerFactory.Create(traceWriter: traceWriter, loggerFactory: loggerFactory);
         }
 
         private static IFunctionIndexCollector CreateStubFunctionIndex()
@@ -347,6 +409,40 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Indexers
         public static Task ReturnTask()
         {
             throw new NotImplementedException();
+        }
+
+        [NoAutomaticTrigger]
+        public static async void ReturnAsyncVoid()
+        {
+            await Task.FromResult(0);
+        }
+
+        [NoAutomaticTrigger]
+        [TraceLevel(TraceLevel.Off)]
+        public static void TraceLevelOverride_Off()
+        {
+        }
+
+        [NoAutomaticTrigger]
+        [TraceLevel(TraceLevel.Error)]
+        public static void TraceLevelOverride_Error()
+        {
+        }
+
+        [NoAutomaticTrigger]
+        [Timeout("00:30:00")]
+        public static void Timeout_Set()
+        {
+        }
+
+        private class TestIndexCollector : IFunctionIndexCollector
+        {
+            public List<FunctionDescriptor> Functions = new List<FunctionDescriptor>();
+
+            public void Add(IFunctionDefinition function, FunctionDescriptor descriptor, MethodInfo method)
+            {
+                Functions.Add(descriptor);
+            }
         }
     }
 }

@@ -38,7 +38,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
                 // Act & Assert
                 ExceptionAssert.ThrowsInvalidOperation(() =>
                     product.GetDashboardAccountAsync(CancellationToken.None).GetAwaiter().GetResult(),
-                    "Microsoft Azure WebJobs SDK Dashboard connection string is missing or empty. The Microsoft Azure Storage account connection string can be set in the following ways:" + Environment.NewLine +
+                    "Microsoft Azure WebJobs SDK 'Dashboard' connection string is missing or empty. The Microsoft Azure Storage account connection string can be set in the following ways:" + Environment.NewLine +
                     "1. Set the connection string named 'AzureWebJobsDashboard' in the connectionStrings section of the .config file in the following format " +
                     "<add name=\"AzureWebJobsDashboard\" connectionString=\"DefaultEndpointsProtocol=http|https;AccountName=NAME;AccountKey=KEY\" />, or" + Environment.NewLine +
                     "2. Set the environment variable named 'AzureWebJobsDashboard', or" + Environment.NewLine +
@@ -73,14 +73,14 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
 
             Mock<IStorageCredentialsValidator> validatorMock = new Mock<IStorageCredentialsValidator>(
                 MockBehavior.Strict);
-            validatorMock.Setup(v => v.ValidateCredentialsAsync(parsedAccount, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            validatorMock.Setup(v => v.ValidateCredentialsAsync(parsedAccount, It.IsAny<CancellationToken>()))
                          .Returns(Task.FromResult(0))
                          .Verifiable();
             IStorageCredentialsValidator validator = validatorMock.Object;
 
             IStorageAccountProvider provider = CreateProductUnderTest(services, connectionStringProvider, parser, validator);
 
-            IStorageAccount actualAccount = provider.GetAccountAsync(
+            IStorageAccount actualAccount = provider.TryGetAccountAsync(
                 connectionStringName, CancellationToken.None).GetAwaiter().GetResult();
 
             Assert.Same(parsedAccount, actualAccount);
@@ -107,7 +107,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
             IStorageAccountProvider provider = CreateProductUnderTest(services, connectionStringProvider, parser);
 
             Exception actualException = Assert.Throws<InvalidOperationException>(
-                () => provider.GetAccountAsync(connectionStringName, CancellationToken.None).GetAwaiter().GetResult());
+                () => provider.TryGetAccountAsync(connectionStringName, CancellationToken.None).GetAwaiter().GetResult());
 
             Assert.Same(expectedException, actualException);
         }
@@ -125,13 +125,13 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
             IStorageAccountParser parser = CreateParser(services, connectionStringName, connectionString, parsedAccount);
             Mock<IStorageCredentialsValidator> validatorMock = new Mock<IStorageCredentialsValidator>(
                 MockBehavior.Strict);
-            validatorMock.Setup(v => v.ValidateCredentialsAsync(parsedAccount, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            validatorMock.Setup(v => v.ValidateCredentialsAsync(parsedAccount, It.IsAny<CancellationToken>()))
                 .Throws(expectedException);
             IStorageCredentialsValidator validator = validatorMock.Object;
             IStorageAccountProvider provider = CreateProductUnderTest(services, connectionStringProvider, parser, validator);
 
             Exception actualException = Assert.Throws<InvalidOperationException>(
-                () => provider.GetAccountAsync(connectionStringName, CancellationToken.None).GetAwaiter().GetResult());
+                () => provider.TryGetAccountAsync(connectionStringName, CancellationToken.None).GetAwaiter().GetResult());
 
             Assert.Same(expectedException, actualException);
         }
@@ -147,7 +147,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
             IStorageCredentialsValidator validator = CreateValidator(parsedAccount);
             DefaultStorageAccountProvider provider = CreateProductUnderTest(services, connectionStringProvider, parser, validator);
             provider.DashboardConnectionString = connectionString;
-            IStorageAccount actualAccount = provider.GetAccountAsync(
+            IStorageAccount actualAccount = provider.TryGetAccountAsync(
                 ConnectionStringNames.Dashboard, CancellationToken.None).GetAwaiter().GetResult();
 
             Assert.Same(parsedAccount, actualAccount);
@@ -165,7 +165,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
             DefaultStorageAccountProvider provider = CreateProductUnderTest(services, connectionStringProvider, parser, validator);
             provider.StorageConnectionString = connectionString;
 
-            IStorageAccount actualAccount = provider.GetAccountAsync(
+            IStorageAccount actualAccount = provider.TryGetAccountAsync(
                 ConnectionStringNames.Storage, CancellationToken.None).GetAwaiter().GetResult();
 
             Assert.Same(parsedAccount, actualAccount);
@@ -177,7 +177,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
             DefaultStorageAccountProvider provider = CreateProductUnderTest();
             provider.DashboardConnectionString = null;
 
-            IStorageAccount actualAccount = provider.GetAccountAsync(
+            IStorageAccount actualAccount = provider.TryGetAccountAsync(
                 ConnectionStringNames.Dashboard, CancellationToken.None).GetAwaiter().GetResult();
 
             Assert.Null(actualAccount);
@@ -189,7 +189,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
             DefaultStorageAccountProvider provider = CreateProductUnderTest();
             provider.StorageConnectionString = null;
 
-            var account = await provider.GetAccountAsync(ConnectionStringNames.Storage, CancellationToken.None);
+            var account = await provider.TryGetAccountAsync(ConnectionStringNames.Storage, CancellationToken.None);
             Assert.Null(account);
         }
 
@@ -200,32 +200,71 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
             provider.DashboardConnectionString = null;
             provider.StorageConnectionString = null;
 
-            var dashboardAccount = await provider.GetAccountAsync(ConnectionStringNames.Dashboard, CancellationToken.None);
+            var dashboardAccount = await provider.TryGetAccountAsync(ConnectionStringNames.Dashboard, CancellationToken.None);
             Assert.Null(dashboardAccount);
 
-            var storageAccount = await provider.GetAccountAsync(ConnectionStringNames.Storage, CancellationToken.None);
+            var storageAccount = await provider.TryGetAccountAsync(ConnectionStringNames.Storage, CancellationToken.None);
             Assert.Null(storageAccount);
         }
 
         [Fact]
-        public void StorageAccountOverrides_MultipleLevels()
+        public async Task GetAccountAsync_WhenWebJobsStorageAccountNotGeneral_Throws()
         {
-            // param level
-            MethodInfo method = typeof(AccountOverrides).GetMethod("ParamOverride", BindingFlags.NonPublic | BindingFlags.Instance);
-            ParameterInfo parameter = method.GetParameters().Single(p => p.Name == "s");
-            string account = StorageAccountProviderExtensions.GetAccountOverrideOrNull(parameter);
-            Assert.Equal("param", account);
+            string connectionString = "valid-ignore";
+            var connStringMock = new Mock<IConnectionStringProvider>();
+            connStringMock.Setup(c => c.GetConnectionString(ConnectionStringNames.Storage)).Returns(connectionString);
+            var connectionStringProvider = connStringMock.Object;
+            var accountMock = new Mock<IStorageAccount>();
+            accountMock.SetupGet(s => s.Type).Returns(StorageAccountType.BlobOnly);
+            accountMock.SetupGet(s => s.Credentials).Returns(new StorageCredentials("name", new byte[] { }));
+            var parsedAccount = accountMock.Object;
+            IServiceProvider services = CreateServices();
+            IStorageAccountParser parser = CreateParser(services, ConnectionStringNames.Storage, connectionString, parsedAccount);
+            IStorageCredentialsValidator validator = CreateValidator(parsedAccount);
+            DefaultStorageAccountProvider provider = CreateProductUnderTest(services, connectionStringProvider, parser, validator);
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetStorageAccountAsync(CancellationToken.None));
 
-            // method level
-            method = typeof(AccountOverrides).GetMethod("MethodOverride", BindingFlags.NonPublic | BindingFlags.Instance);
-            parameter = method.GetParameters().Single(p => p.Name == "s");
-            account = StorageAccountProviderExtensions.GetAccountOverrideOrNull(parameter);
-            Assert.Equal("method", account);
+            Assert.Equal("Storage account 'name' is of unsupported type 'Blob-Only/ZRS'. Supported types are 'General Purpose'", exception.Message);
+        }
 
-            method = typeof(AccountOverrides).GetMethod("ClassOverride", BindingFlags.NonPublic | BindingFlags.Instance);
-            parameter = method.GetParameters().Single(p => p.Name == "s");
-            account = StorageAccountProviderExtensions.GetAccountOverrideOrNull(parameter);
-            Assert.Equal("class", account);
+        [Fact]
+        public async Task GetAccountAsync_WhenWebJobsDashboardAccountNotGeneral_Throws()
+        {
+            string connectionString = "valid-ignore";
+            var connStringMock = new Mock<IConnectionStringProvider>();
+            connStringMock.Setup(c => c.GetConnectionString(ConnectionStringNames.Dashboard)).Returns(connectionString);
+            var connectionStringProvider = connStringMock.Object;
+            var accountMock = new Mock<IStorageAccount>();
+            accountMock.SetupGet(s => s.Type).Returns(StorageAccountType.Premium);
+            accountMock.SetupGet(s => s.Credentials).Returns(new StorageCredentials("name", new byte[] { }));
+            var parsedAccount = accountMock.Object;
+            IServiceProvider services = CreateServices();
+            IStorageAccountParser parser = CreateParser(services, ConnectionStringNames.Dashboard, connectionString, parsedAccount);
+            IStorageCredentialsValidator validator = CreateValidator(parsedAccount);
+            DefaultStorageAccountProvider provider = CreateProductUnderTest(services, connectionStringProvider, parser, validator);
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetDashboardAccountAsync(CancellationToken.None));
+
+            Assert.Equal("Storage account 'name' is of unsupported type 'Premium'. Supported types are 'General Purpose'", exception.Message);
+        }
+
+        [Fact]
+        public async Task GetStorageAccountAsyncTest()
+        {
+            string cxEmpty= "";
+            var accountDefault = new Mock<IStorageAccount>().Object;
+
+            string cxReal = "MyAccount";
+            var accountReal = new Mock<IStorageAccount>().Object;
+
+            var provider = new Mock<IStorageAccountProvider>();
+            provider.Setup(c => c.TryGetAccountAsync(ConnectionStringNames.Storage, CancellationToken.None)).Returns(Task.FromResult<IStorageAccount>(accountDefault));
+            provider.Setup(c => c.TryGetAccountAsync(cxReal, CancellationToken.None)).Returns(Task.FromResult<IStorageAccount>(accountReal));
+
+            var account = await StorageAccountProviderExtensions.GetStorageAccountAsync(provider.Object, cxEmpty, CancellationToken.None);
+            Assert.Equal(accountDefault, account);
+
+            account = await StorageAccountProviderExtensions.GetStorageAccountAsync(provider.Object, cxReal, CancellationToken.None);
+            Assert.Equal(accountReal, account);
         }
 
         private static IConnectionStringProvider CreateConnectionStringProvider(string connectionStringName,
@@ -289,7 +328,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests.Executors
         private static IStorageCredentialsValidator CreateValidator(IStorageAccount account)
         {
             Mock<IStorageCredentialsValidator> mock = new Mock<IStorageCredentialsValidator>(MockBehavior.Strict);
-            mock.Setup(v => v.ValidateCredentialsAsync(account, It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            mock.Setup(v => v.ValidateCredentialsAsync(account, It.IsAny<CancellationToken>()))
                 .Returns(Task.FromResult(0));
             return mock.Object;
         }

@@ -8,7 +8,6 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Host.Bindings;
-using Microsoft.Azure.WebJobs.Host.Converters;
 using Microsoft.Azure.WebJobs.Host.Executors;
 using Microsoft.Azure.WebJobs.Host.Indexers;
 using Microsoft.Azure.WebJobs.Host.Listeners;
@@ -17,6 +16,7 @@ using Microsoft.Azure.WebJobs.Host.Storage;
 using Microsoft.Azure.WebJobs.Host.Storage.Blob;
 using Microsoft.Azure.WebJobs.Host.Timers;
 using Microsoft.Azure.WebJobs.Host.Triggers;
+using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage.Blob;
 
 namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
@@ -28,24 +28,28 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
         private readonly IBlobArgumentBindingProvider _provider;
         private readonly IHostIdProvider _hostIdProvider;
         private readonly IQueueConfiguration _queueConfiguration;
+        private readonly JobHostBlobsConfiguration _blobsConfiguration;
         private readonly IWebJobsExceptionHandler _exceptionHandler;
         private readonly IContextSetter<IBlobWrittenWatcher> _blobWrittenWatcherSetter;
         private readonly IContextSetter<IMessageEnqueuedWatcher> _messageEnqueuedWatcherSetter;
         private readonly ISharedContextProvider _sharedContextProvider;
         private readonly SingletonManager _singletonManager;
         private readonly TraceWriter _trace;
+        private readonly ILoggerFactory _loggerFactory;
 
         public BlobTriggerAttributeBindingProvider(INameResolver nameResolver,
             IStorageAccountProvider accountProvider,
             IExtensionTypeLocator extensionTypeLocator,
             IHostIdProvider hostIdProvider,
             IQueueConfiguration queueConfiguration,
+            JobHostBlobsConfiguration blobsConfiguration,
             IWebJobsExceptionHandler exceptionHandler,
             IContextSetter<IBlobWrittenWatcher> blobWrittenWatcherSetter,
             IContextSetter<IMessageEnqueuedWatcher> messageEnqueuedWatcherSetter,
             ISharedContextProvider sharedContextProvider,
             SingletonManager singletonManager,
-            TraceWriter trace)
+            TraceWriter trace,
+            ILoggerFactory loggerFactory)
         {
             if (accountProvider == null)
             {
@@ -65,6 +69,11 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
             if (queueConfiguration == null)
             {
                 throw new ArgumentNullException("queueConfiguration");
+            }
+
+            if (blobsConfiguration == null)
+            {
+                throw new ArgumentNullException("blobsConfiguration");
             }
 
             if (exceptionHandler == null)
@@ -102,12 +111,14 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
             _provider = CreateProvider(extensionTypeLocator.GetCloudBlobStreamBinderTypes());
             _hostIdProvider = hostIdProvider;
             _queueConfiguration = queueConfiguration;
+            _blobsConfiguration = blobsConfiguration;
             _exceptionHandler = exceptionHandler;
             _blobWrittenWatcherSetter = blobWrittenWatcherSetter;
             _messageEnqueuedWatcherSetter = messageEnqueuedWatcherSetter;
             _sharedContextProvider = sharedContextProvider;
             _singletonManager = singletonManager;
             _trace = trace;
+            _loggerFactory = loggerFactory;
         }
 
         private static IBlobArgumentBindingProvider CreateProvider(IEnumerable<Type> cloudBlobStreamBinderTypes)
@@ -141,7 +152,7 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
         public async Task<ITriggerBinding> TryCreateAsync(TriggerBindingProviderContext context)
         {
             ParameterInfo parameter = context.Parameter;
-            BlobTriggerAttribute blobTriggerAttribute = parameter.GetCustomAttribute<BlobTriggerAttribute>(inherit: false);
+            var blobTriggerAttribute = TypeUtility.GetResolvedAttribute<BlobTriggerAttribute>(context.Parameter);
 
             if (blobTriggerAttribute == null)
             {
@@ -158,11 +169,13 @@ namespace Microsoft.Azure.WebJobs.Host.Blobs.Triggers
             }
 
             IStorageAccount hostAccount = await _accountProvider.GetStorageAccountAsync(context.CancellationToken);
-            IStorageAccount dataAccount = await _accountProvider.GetStorageAccountAsync(context.Parameter, context.CancellationToken, _nameResolver);
+            IStorageAccount dataAccount = await _accountProvider.GetStorageAccountAsync(blobTriggerAttribute, context.CancellationToken, _nameResolver);
+            // premium does not support blob logs, so disallow for blob triggers
+            dataAccount.AssertTypeOneOf(StorageAccountType.GeneralPurpose, StorageAccountType.BlobOnly);
 
             ITriggerBinding binding = new BlobTriggerBinding(parameter, argumentBinding, hostAccount, dataAccount, path,
-                _hostIdProvider, _queueConfiguration, _exceptionHandler, _blobWrittenWatcherSetter,
-                _messageEnqueuedWatcherSetter, _sharedContextProvider, _singletonManager, _trace);
+                _hostIdProvider, _queueConfiguration, _blobsConfiguration, _exceptionHandler, _blobWrittenWatcherSetter,
+                _messageEnqueuedWatcherSetter, _sharedContextProvider, _singletonManager, _trace, _loggerFactory);
 
             return binding;
         }

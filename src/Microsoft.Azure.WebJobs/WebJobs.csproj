@@ -10,7 +10,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Microsoft.Azure.WebJobs</RootNamespace>
     <AssemblyName>Microsoft.Azure.WebJobs</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
     <NuGetPackageImportStamp>
@@ -31,7 +31,7 @@
     <DocumentationFile>bin\Debug\Microsoft.Azure.WebJobs.xml</DocumentationFile>
     <Prefer32Bit>false</Prefer32Bit>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <LangVersion>5</LangVersion>
+    <LangVersion>default</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -43,7 +43,7 @@
     <DocumentationFile>bin\Release\Microsoft.Azure.WebJobs.xml</DocumentationFile>
     <Prefer32Bit>false</Prefer32Bit>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <LangVersion>5</LangVersion>
+    <LangVersion>default</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>true</SignAssembly>
@@ -58,10 +58,14 @@
     <Compile Include="..\Common\CommonAssemblyInfo.cs">
       <Link>Properties\CommonAssemblyInfo.cs</Link>
     </Compile>
+    <Compile Include="AppSettingAttribute.cs" />
     <Compile Include="AutoResolveAttribute.cs" />
+    <Compile Include="BindingAttribute.cs" />
     <Compile Include="BlobTriggerAttribute.cs" />
     <Compile Include="BinderExtensions.cs" />
+    <Compile Include="ConnectionProviderAttribute.cs" />
     <Compile Include="DisableAttribute.cs" />
+    <Compile Include="FunctionNameAttribute.cs" />
     <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="IAsyncCollector.cs" />
     <Compile Include="IAttributeInvokeDescriptor.cs" />
@@ -71,10 +75,12 @@
     <Compile Include="ICollector.cs" />
     <Compile Include="QueueAttribute.cs" />
     <Compile Include="QueueTriggerAttribute.cs" />
+    <Compile Include="ODataFilterResolutionPolicy.cs" />
     <Compile Include="SingletonAttribute.cs" />
     <Compile Include="SingletonMode.cs" />
     <Compile Include="SingletonScope.cs" />
     <Compile Include="StorageAccountAttribute.cs" />
+    <Compile Include="IConnectionProvider.cs" />
     <Compile Include="TableAttribute.cs" />
     <Compile Include="NoAutomaticTriggerAttribute.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -102,9 +108,9 @@
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Enable NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
     <Error Condition="!Exists('..\..\packages\xunit.runner.visualstudio.2.1.0\build\net20\xunit.runner.visualstudio.props')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\xunit.runner.visualstudio.2.1.0\build\net20\xunit.runner.visualstudio.props'))" />
-    <Error Condition="!Exists('..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets'))" />
+    <Error Condition="!Exists('..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets')" Text="$([System.String]::Format('$(ErrorText)', '..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets'))" />
   </Target>
-  <Import Project="..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets" Condition="Exists('..\..\packages\StyleCop.MSBuild.4.7.54.0\build\StyleCop.MSBuild.Targets')" />
+  <Import Project="..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets" Condition="Exists('..\..\packages\StyleCop.MSBuild.4.7.55.0\build\StyleCop.MSBuild.Targets')" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">

@@ -35,9 +35,9 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Bindings
             get { return typeof(TInput); }
         }
 
-        public object GetValue()
+        public Task<object> GetValueAsync()
         {
-            return default(TInput);
+            return Task.FromResult<object>(default(TInput));
         }
 
         public string ToInvokeString()
@@ -49,7 +49,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Bindings
         {
             BrokeredMessage message = _converter.Convert((TInput)value);
             Debug.Assert(message != null);
-            return _entity.SendAndCreateQueueIfNotExistsAsync(message, _functionInstanceId, cancellationToken);
+            return _entity.SendAndCreateEntityIfNotExistsAsync(message, _functionInstanceId, cancellationToken);
         }
     }
 }

@@ -11,6 +11,7 @@ using Microsoft.Azure.WebJobs.Host.Listeners;
 using Microsoft.Azure.WebJobs.Host.Storage;
 using Microsoft.Azure.WebJobs.Host.Storage.Queue;
 using Microsoft.Azure.WebJobs.Host.Timers;
+using Microsoft.Extensions.Logging;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Queue;
 
@@ -24,12 +25,12 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
         private readonly IStorageQueue _poisonQueue;
         private readonly ITriggerExecutor<IStorageQueueMessage> _triggerExecutor;
         private readonly IWebJobsExceptionHandler _exceptionHandler;
-        private readonly TraceWriter _trace;
         private readonly IMessageEnqueuedWatcher _sharedWatcher;
         private readonly List<Task> _processing = new List<Task>();
         private readonly object _stopWaitingTaskSourceLock = new object();
         private readonly IQueueConfiguration _queueConfiguration;
         private readonly QueueProcessor _queueProcessor;
+        private readonly TimeSpan _visibilityTimeout;
 
         private bool _foundMessageSinceLastDelay;
         private bool _disposed;
@@ -38,11 +39,13 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
         public QueueListener(IStorageQueue queue,
             IStorageQueue poisonQueue,
             ITriggerExecutor<IStorageQueueMessage> triggerExecutor,
-            IDelayStrategy delayStrategy,
             IWebJobsExceptionHandler exceptionHandler,
             TraceWriter trace,
+            ILoggerFactory loggerFactory,
             SharedQueueWatcher sharedWatcher,
-            IQueueConfiguration queueConfiguration)
+            IQueueConfiguration queueConfiguration,
+            QueueProcessor queueProcessor = null,
+            TimeSpan? maxPollingInterval = null)
         {
             if (trace == null)
             {
@@ -68,10 +71,12 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
             _queue = queue;
             _poisonQueue = poisonQueue;
             _triggerExecutor = triggerExecutor;
-            _delayStrategy = delayStrategy;
             _exceptionHandler = exceptionHandler;
-            _trace = trace;
             _queueConfiguration = queueConfiguration;
+
+            // if the function runs longer than this, the invisibility will be updated
+            // on a timer periodically for the duration of the function execution
+            _visibilityTimeout = TimeSpan.FromMinutes(10);
 
             if (sharedWatcher != null)
             {
@@ -80,10 +85,19 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
                 _sharedWatcher = sharedWatcher;
             }
 
-            EventHandler poisonMessageEventHandler = _sharedWatcher != null ? OnMessageAddedToPoisonQueue : (EventHandler)null;
-            _queueProcessor = CreateQueueProcessor(
+            EventHandler<PoisonMessageEventArgs> poisonMessageEventHandler = _sharedWatcher != null ? OnMessageAddedToPoisonQueue : (EventHandler<PoisonMessageEventArgs>)null;
+            _queueProcessor = queueProcessor ?? CreateQueueProcessor(
                 _queue.SdkObject, _poisonQueue != null ? _poisonQueue.SdkObject : null,
-                _trace, _queueConfiguration, poisonMessageEventHandler);
+                trace, loggerFactory, _queueConfiguration, poisonMessageEventHandler);
+
+            TimeSpan maximumInterval = _queueProcessor.MaxPollingInterval;
+            if (maxPollingInterval.HasValue && maximumInterval > maxPollingInterval.Value)
+            {
+                // enforce the maximum polling interval if specified
+                maximumInterval = maxPollingInterval.Value;
+            }
+
+            _delayStrategy = new RandomizedExponentialBackoffStrategy(QueuePollingIntervals.Minimum, maximumInterval);
         }
 
         public void Cancel()
@@ -128,20 +142,11 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
                 _stopWaitingTaskSource = new TaskCompletionSource<object>();
             }
 
-            if (!await _queue.ExistsAsync(cancellationToken))
-            {
-                // Back off when no message is available.
-                return CreateBackoffResult();
-            }
-
-            // What if job takes longer. Call CloudQueue.UpdateMessage
-            TimeSpan visibilityTimeout = TimeSpan.FromMinutes(10); // long enough to process the job
             IEnumerable<IStorageQueueMessage> batch;
-
             try
             {
                 batch = await _queue.GetMessagesAsync(_queueProcessor.BatchSize,
-                    visibilityTimeout,
+                    _visibilityTimeout,
                     options: null,
                     operationContext: null,
                     cancellationToken: cancellationToken);
@@ -152,7 +157,8 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
                     exception.IsConflictQueueBeingDeletedOrDisabled() ||
                     exception.IsServerSideError())
                 {
-                    // Back off when no message is available.
+                    // Back off when no message is available, or when
+                    // transient errors occur
                     return CreateBackoffResult();
                 }
                 else
@@ -167,8 +173,7 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
             }
 
             bool foundMessage = false;
-
-            foreach (IStorageQueueMessage message in batch)
+            foreach (var message in batch)
             {
                 if (message == null)
                 {
@@ -181,7 +186,7 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
                 // of the cancellation token contract. However, the timer implementation would not dispose of the
                 // cancellation token source until it has stopped and perhaps also disposed, and we wait for all
                 // outstanding tasks to complete before stopping the timer.
-                Task task = ProcessMessageAsync(message, visibilityTimeout, cancellationToken);
+                Task task = ProcessMessageAsync(message, _visibilityTimeout, cancellationToken);
 
                 // Having both WaitForNewBatchThreshold and this method mutate _processing is safe because the timer
                 // contract is serial: it only calls ExecuteAsync once the wait expires (and the wait won't expire until
@@ -271,9 +276,11 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
             }
         }
 
-        private void OnMessageAddedToPoisonQueue(object sender, EventArgs e)
+        private void OnMessageAddedToPoisonQueue(object sender, PoisonMessageEventArgs e)
         {
-            _sharedWatcher.Notify(_poisonQueue.Name);
+            // TODO: this is assuming that the poison queue is in the same
+            // storage account
+            _sharedWatcher.Notify(e.PoisonQueue.Name);
         }
 
         private static ITaskSeriesTimer CreateUpdateMessageVisibilityTimer(IStorageQueue queue,
@@ -296,9 +303,10 @@ namespace Microsoft.Azure.WebJobs.Host.Queues.Listeners
             }
         }
 
-        internal static QueueProcessor CreateQueueProcessor(CloudQueue queue, CloudQueue poisonQueue, TraceWriter trace, IQueueConfiguration queueConfig, EventHandler poisonQueueMessageAddedHandler)
+        internal static QueueProcessor CreateQueueProcessor(CloudQueue queue, CloudQueue poisonQueue, TraceWriter trace, ILoggerFactory loggerFactory,
+            IQueueConfiguration queueConfig, EventHandler<PoisonMessageEventArgs> poisonQueueMessageAddedHandler)
         {
-            QueueProcessorFactoryContext context = new QueueProcessorFactoryContext(queue, trace, queueConfig, poisonQueue);
+            QueueProcessorFactoryContext context = new QueueProcessorFactoryContext(queue, trace, loggerFactory, queueConfig, poisonQueue);
 
             QueueProcessor queueProcessor = null;
             if (HostQueueNames.IsHostQueue(queue.Name) &&

@@ -45,7 +45,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
                     bindingData[kv.Key] = kv.Value;
                 }
             }
-
+            
             BindingContext bindingContext = new BindingContext(context, bindingData);
             return bindingContext;
         }
@@ -58,7 +58,7 @@ namespace Microsoft.Azure.WebJobs.Host.Bindings
             BindingContext bindingContext = NewBindingContext(context, null, parameters);
 
             // bind Singleton if specified
-            SingletonAttribute singletonAttribute = SingletonManager.GetFunctionSingletonOrNull(_descriptor.Method, isTriggered: false);
+            SingletonAttribute singletonAttribute = SingletonManager.GetFunctionSingletonOrNull(_descriptor, isTriggered: false);
             if (singletonAttribute != null)
             {
                 string boundScopeId = _singletonManager.GetBoundScopeId(singletonAttribute.ScopeId);

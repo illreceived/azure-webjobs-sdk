@@ -73,7 +73,10 @@
       <Word>Prefetch</Word>
       <Word>ScopeId</Word>
       <Word>poco</Word>
-	</Recognized>
+      <Word>ResolutionPolicyType</Word>
+      <Word>AppSetting</Word>
+      <Word>AutoResolve</Word>
+    </Recognized>
     <Deprecated/>
     <Compound>
       <Term CompoundAlternate="CancellationToken">cancellationToken</Term>

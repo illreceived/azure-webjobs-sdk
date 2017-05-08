@@ -9,6 +9,7 @@ namespace Microsoft.Azure.WebJobs
     /// Place this on binding attributes properties to tell the binders that that the property contains
     /// {key} or "%setting%" segments that should be automatically resolved.
     /// </summary>
+    [Obsolete("Not ready for public consumption.")]
     [AttributeUsage(AttributeTargets.Property)]
     public sealed class AutoResolveAttribute : Attribute
     {
@@ -17,14 +18,12 @@ namespace Microsoft.Azure.WebJobs
         /// </summary>
         public AutoResolveAttribute()
         {
-            AllowTokens = true;
         }
 
         /// <summary>
-        /// If true, the property allows tokens. Any value within %% will be automatically resolved.
-        /// If false, the property does not allow tokens. The property value itself is automatically resolved.
-        /// Default value is true.
+        /// Specifies a type to use for runtime binding resolution. That type must derive from IResolutionPolicy, found
+        /// in the Microsoft.Azure.WebJobs.Host assembly.
         /// </summary>
-        public bool AllowTokens { get; set; }
+        public Type ResolutionPolicyType { get; set; }
     }
 }

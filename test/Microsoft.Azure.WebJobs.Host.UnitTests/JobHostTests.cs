@@ -39,7 +39,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
 
             File.Delete(path);
 
-            IServiceProvider configuration = CreateConfiguration();
+            var configuration = CreateConfiguration();
 
             using (JobHost host = new JobHost(configuration))
             {
@@ -104,7 +104,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
         {
             // Arrange
             TaskCompletionSource<IStorageAccount> getAccountTaskSource = new TaskCompletionSource<IStorageAccount>();
-            TestJobHostConfiguration configuration = CreateConfiguration(new LambdaStorageAccountProvider(
+            JobHostConfiguration configuration = CreateConfiguration(new LambdaStorageAccountProvider(
                     (i1, i2) => getAccountTaskSource.Task));
 
             using (JobHost host = new JobHost(configuration))
@@ -193,7 +193,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
         {
             // Arrange
             TaskCompletionSource<IStorageAccount> getAccountTaskSource = new TaskCompletionSource<IStorageAccount>();
-            TestJobHostConfiguration configuration = CreateConfiguration(new LambdaStorageAccountProvider(
+            JobHostConfiguration configuration = CreateConfiguration(new LambdaStorageAccountProvider(
                     (i1, i2) => getAccountTaskSource.Task));
 
             using (JobHost host = new JobHost(configuration))
@@ -472,13 +472,13 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
         }
 
         [Fact]
+        [Trait("SecretsRequired", "true")]
         public void IndexingExceptions_CanBeHandledByTraceWriter()
         {
             JobHostConfiguration config = new JobHostConfiguration();
             TestTraceWriter traceWriter = new TestTraceWriter(TraceLevel.Verbose);
             config.Tracing.Tracers.Add(traceWriter);
             config.TypeLocator = new FakeTypeLocator(typeof(BindingErrorsProgram));
-
             FunctionErrorTraceWriter errorTraceWriter = new FunctionErrorTraceWriter(TraceLevel.Error);
             config.Tracing.Tracers.Add(errorTraceWriter);
 
@@ -491,7 +491,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
             Assert.Equal("BindingErrorsProgram.Invalid", fex.MethodName);
 
             // verify that the binding error was logged
-            Assert.Equal(5, traceWriter.Traces.Count);
+            Assert.Equal(4, traceWriter.Traces.Count);
             TraceEvent traceEvent = traceWriter.Traces[0];
             Assert.Equal("Error indexing method 'BindingErrorsProgram.Invalid'", traceEvent.Message);
             Assert.Same(fex, traceEvent.Exception);
@@ -503,14 +503,14 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
             Assert.True(traceEvent.Message.Contains("BindingErrorsProgram.Valid"));
 
             // verify that the job host was started successfully
-            traceEvent = traceWriter.Traces[4];
+            traceEvent = traceWriter.Traces[3];
             Assert.Equal("Job host started", traceEvent.Message);
 
             host.Stop();
             host.Dispose();
         }
 
-        private static TestJobHostConfiguration CreateConfiguration()
+        private static JobHostConfiguration CreateConfiguration()
         {
             Mock<IServiceProvider> services = new Mock<IServiceProvider>(MockBehavior.Strict);
             StorageClientFactory clientFactory = new StorageClientFactory();
@@ -525,16 +525,17 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
             return CreateConfiguration(storageAccountProvider);
         }
 
-        private static TestJobHostConfiguration CreateConfiguration(IStorageAccountProvider storageAccountProvider)
+        private static JobHostConfiguration CreateConfiguration(IStorageAccountProvider storageAccountProvider)
         {
-            return new TestJobHostConfiguration
-            {
-                ContextFactory = new TestJobHostContextFactory
-                {
-                    StorageAccountProvider = storageAccountProvider,
-                    SingletonManager = new SingletonManager()
-                }
-            };
+            var singletonManager = new SingletonManager();
+
+            return TestHelpers.NewConfig(
+                storageAccountProvider, 
+                singletonManager,
+                new NullConsoleProvider(),
+                new FixedHostIdProvider(Guid.NewGuid().ToString("N")),
+                new EmptyFunctionIndexProvider()
+                );
         }
 
         private static ExceptionDispatchInfo CreateExceptionInfo(Exception exception)
@@ -569,7 +570,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
                 _getAccountAsync = getAccountAsync;
             }
 
-            public Task<IStorageAccount> GetAccountAsync(string connectionStringName,
+            public Task<IStorageAccount> TryGetAccountAsync(string connectionStringName,
                 CancellationToken cancellationToken)
             {
                 return _getAccountAsync.Invoke(connectionStringName, cancellationToken);
@@ -661,7 +662,7 @@ namespace Microsoft.Azure.WebJobs.Host.UnitTests
                 {
                     fex.Handled = true;
                     Errors.Add(fex);
-                } 
+                }
             }
         }
     }

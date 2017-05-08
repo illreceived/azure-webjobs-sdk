@@ -49,9 +49,9 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Bindings
                 get { return typeof(BrokeredMessage); }
             }
 
-            public object GetValue()
+            public Task<object> GetValueAsync()
             {
-                return null;
+                return Task.FromResult<object>(null);
             }
 
             public string ToInvokeString()
@@ -93,7 +93,7 @@ namespace Microsoft.Azure.WebJobs.ServiceBus.Bindings
 
                 BrokeredMessage message = (BrokeredMessage)value;
 
-                await _entity.SendAndCreateQueueIfNotExistsAsync(message, _functionInstanceId, cancellationToken);
+                await _entity.SendAndCreateEntityIfNotExistsAsync(message, _functionInstanceId, cancellationToken);
             }
         }
     }
